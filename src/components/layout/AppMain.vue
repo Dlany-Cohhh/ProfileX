@@ -1,7 +1,17 @@
 <template>
-  <main class="app-main">
-    <div v-if="profileStore.loading" class="loading-container">
-      <el-skeleton :rows="4" animated />
+  <main class="app-main" :class="{ 'has-batch-bar': profileStore.selectedIds.size > 0 }">
+    <!-- 骨架屏用与网格同构的卡片，避免加载完成时布局跳动 -->
+    <div
+      v-if="profileStore.loading"
+      :class="['profiles-container', profileStore.viewMode === 'grid' ? 'grid-view' : 'list-view']"
+    >
+      <div v-for="n in 6" :key="n" class="skeleton-card">
+        <el-skeleton-item variant="image" class="skeleton-avatar" />
+        <div class="skeleton-lines">
+          <el-skeleton-item variant="p" class="skeleton-line w60" />
+          <el-skeleton-item variant="text" class="skeleton-line w40" />
+        </div>
+      </div>
     </div>
 
     <el-empty
@@ -44,8 +54,9 @@
             :profile="profile"
             :is-launching="profileStore.launchingProfiles.has(profile.id)"
             :is-selected="profileStore.selectedIds.has(profile.id)"
+            :workspace-color="colorOf(profile)"
             :class="{ 'is-dragging': draggingId === profile.id }"
-            :style="{ animationDelay: `${index * 50}ms` }"
+            :style="{ animationDelay: `${Math.min(index, 8) * 40}ms` }"
             @launch="profileStore.handleLaunch"
             @toggleSelection="profileStore.toggleSelection"
             @edit="$emit('edit', profile)"
@@ -135,6 +146,12 @@ const allSelected = computed(
 const partiallySelected = computed(
   () => profileStore.selectedIds.size > 0 && !allSelected.value
 );
+
+/** 工作区颜色表，卡片左侧色条用它标识归属 */
+const colorOf = (profile: Profile) =>
+  profile.workspace_id
+    ? workspaceStore.workspaces.find(ws => ws.id === profile.workspace_id)?.color || null
+    : null;
 
 const gridRef = ref<HTMLElement | null>(null);
 /** 插入位置下标（0 ~ 列表长度） */
@@ -326,10 +343,49 @@ const handleDelete = async (profile: Profile) => {
   max-width: 1400px;
   margin: 0 auto;
   min-height: calc(100vh - 60px);
+
+  // 底部浮着批量操作栏，给它留出空间才不会遮住最后一行
+  &.has-batch-bar {
+    padding-bottom: 96px;
+  }
 }
 
-.loading-container {
-  padding: var(--space-10);
+// 卡片骨架屏：结构与 ProfileCard 对齐
+.skeleton-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  min-height: 92px;
+}
+
+.skeleton-avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-lg);
+  flex: 0 0 auto;
+}
+
+.skeleton-lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex: 1;
+}
+
+.skeleton-line {
+  height: 12px;
+
+  &.w60 {
+    width: 60%;
+  }
+
+  &.w40 {
+    width: 40%;
+  }
 }
 
 .empty-state {
@@ -373,8 +429,6 @@ const handleDelete = async (profile: Profile) => {
 
   &.list-view {
     grid-template-columns: 1fr;
-    max-width: 800px;
-    margin: 0 auto;
   }
 
   > * {
@@ -382,15 +436,33 @@ const handleDelete = async (profile: Profile) => {
   }
 }
 
-// 拖拽排序：插入位置的占位块
+// 拖拽排序：插入位置指示线。用细线代替大方块，避免整行被挤开产生跳动
 .drop-indicator {
-  border: 2px dashed var(--primary-400);
-  border-radius: var(--radius-lg);
-  background: var(--primary-50, rgba(59, 130, 246, 0.08));
-  min-height: 90px;
+  position: relative;
+  height: 2px;
+  border-radius: var(--radius-full);
+  background: var(--primary-500);
+  box-shadow: 0 0 6px var(--primary-400);
 
-  .list-view & {
-    min-height: 8px;
+  // 两端加个小圆头，视觉上更清楚
+  &::before,
+  &::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--primary-500);
+    transform: translateY(-50%);
+  }
+
+  &::before {
+    left: -3px;
+  }
+
+  &::after {
+    right: -3px;
   }
 }
 

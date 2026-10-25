@@ -1,5 +1,7 @@
 <template>
   <div class="app-container">
+    <WindowResizeHandles />
+
     <AppHeader @create="handleCreate" @settings="showSettings = true" />
 
     <div class="app-body">
@@ -43,6 +45,7 @@ import { ref, computed, onMounted } from 'vue';
 import AppHeader from './components/layout/AppHeader.vue';
 import AppMain from './components/layout/AppMain.vue';
 import WorkspaceSidebar from './components/layout/WorkspaceSidebar.vue';
+import WindowResizeHandles from './components/layout/WindowResizeHandles.vue';
 import ProfileForm from './components/ProfileForm.vue';
 import BackupDialog from './components/BackupDialog.vue';
 import PerformanceDialog from './components/PerformanceDialog.vue';

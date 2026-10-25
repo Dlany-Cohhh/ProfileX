@@ -18,13 +18,18 @@
     </div>
     <!-- 状态指示条 -->
     <div class="status-bar"></div>
-    
+    <!-- 所属工作区的颜色，未分组时隐藏 -->
+    <div v-if="workspaceColor" class="ws-bar" :style="{ background: workspaceColor }"></div>
+
     <div class="profile-card-content">
-      <!-- 头像区域 -->
+      <!-- 头像区域：没有自定义图标时用名字首字生成色块，便于一眼区分 -->
       <div class="profile-avatar-wrapper">
-        <div class="profile-avatar">
+        <div
+          class="profile-avatar"
+          :style="avatarStyle"
+        >
           <img v-if="profile.icon_base64" :src="profile.icon_base64" :alt="profile.name" />
-          <el-icon v-else class="avatar-icon"><UserFilled /></el-icon>
+          <span v-else class="avatar-initial">{{ avatarInitial }}</span>
         </div>
       </div>
       
@@ -44,9 +49,12 @@
           </span>
         </div>
         <div class="profile-meta">
-          <span v-if="profile.is_running" class="status-tag running">
+          <span
+            v-if="profile.is_running"
+            class="status-tag running compact"
+            :title="$t('profile.status.running')"
+          >
             <span class="status-dot"></span>
-            {{ $t('profile.status.running') }}
             <span v-if="profile.debug_port" class="port-info" :title="$t('profile.status.cdpPort')">
               <span class="port-divider">|</span>
               <span class="port-num">{{ profile.debug_port }}</span>
@@ -109,7 +117,6 @@
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import {
-  UserFilled,
   Timer,
   VideoPlay,
   Loading,
@@ -129,6 +136,8 @@ const props = defineProps<{
   profile: Profile;
   isLaunching?: boolean;
   isSelected?: boolean;
+  /** 所属工作区的颜色，用于卡片左侧色条 */
+  workspaceColor?: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -167,6 +176,27 @@ const formatDate = (dateStr: string) => {
 };
 
 const isTemplate = computed(() => profileStore.templateIds.includes(props.profile.id));
+
+/** 无自定义图标时，用 id 哈希出一个稳定的色相，配合首字生成可区分的色块头像 */
+const avatarHue = computed(() => {
+  let hash = 0;
+  for (let i = 0; i < props.profile.id.length; i += 1) {
+    hash = (hash * 31 + props.profile.id.charCodeAt(i)) % 360;
+  }
+  return hash;
+});
+
+const avatarInitial = computed(() => (props.profile.name || '?').trim().slice(0, 1).toUpperCase());
+
+const avatarStyle = computed(() =>
+  props.profile.icon_base64
+    ? undefined
+    : {
+        background: `linear-gradient(135deg, hsl(${avatarHue.value} 65% 58%), hsl(${
+          (avatarHue.value + 40) % 360
+        } 65% 46%))`,
+      }
+);
 
 /**
  * 拖拽时：若当前卡片属于已勾选集合，则带上全部勾选项，支持一次拖多个；
@@ -223,6 +253,15 @@ const handleLaunch = async () => {
   &:active {
     transform: translateY(0);
     box-shadow: var(--shadow-sm);
+  }
+
+  // 运行中的配置用主色描边 + 常显顶条，比文字标签更省地方
+  &.is-running {
+    border-color: var(--primary-300);
+
+    .status-bar {
+      opacity: 1;
+    }
   }
 
   // 启动中状态
@@ -302,6 +341,16 @@ const handleLaunch = async () => {
   transition: opacity 0.2s ease;
 }
 
+// 左侧色条：一眼看出配置属于哪个工作区
+.ws-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+  z-index: 1;
+}
+
 .template-tag {
   background: rgba(139, 92, 246, 0.14);
   color: var(--primary-600, #7c3aed);
@@ -373,6 +422,15 @@ const handleLaunch = async () => {
     font-size: 24px;
     color: var(--gray-400);
   }
+}
+
+// 无自定义图标时的首字色块
+.avatar-initial {
+  font-size: var(--text-xl);
+  font-weight: var(--font-semibold);
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  user-select: none;
 }
 
 // 信息区域

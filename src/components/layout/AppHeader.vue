@@ -1,13 +1,16 @@
 <template>
   <header class="app-header">
-    <div class="header-left">
+    <!-- 无边框窗口：品牌区可作为拖动区 -->
+    <div class="header-left" data-tauri-drag-region>
       <div class="brand">
         <div class="brand-icon">
           <img src="../../assets/logo.png" alt="SpaceShift logo" class="logo-image" />
         </div>
         <div class="brand-text">
           <h1 class="brand-title">SpaceShift</h1>
-          <span class="brand-subtitle">{{ $t('profile.status.running') }}</span>
+          <span class="brand-subtitle">
+            {{ $t('header.stats', { running: runningCount, total: totalCount }) }}
+          </span>
         </div>
       </div>
     </div>
@@ -77,6 +80,19 @@
         <el-icon><Plus /></el-icon>
         <span>{{ $t('header.newProfile') }}</span>
       </el-button>
+
+      <!-- 无边框窗口的自绘控制按钮 -->
+      <div class="window-controls">
+        <button class="win-btn" :title="$t('header.window.minimize')" @click="appWindow.minimize()">
+          <svg viewBox="0 0 10 10" width="10" height="10"><path d="M0 5h10" stroke="currentColor" stroke-width="1" /></svg>
+        </button>
+        <button class="win-btn" :title="$t('header.window.maximize')" @click="appWindow.toggleMaximize()">
+          <svg viewBox="0 0 10 10" width="10" height="10"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1" /></svg>
+        </button>
+        <button class="win-btn close" :title="$t('header.window.close')" @click="appWindow.close()">
+          <svg viewBox="0 0 10 10" width="10" height="10"><path d="M0 0l10 10M10 0L0 10" stroke="currentColor" stroke-width="1" /></svg>
+        </button>
+      </div>
     </div>
   </header>
 </template>
@@ -86,6 +102,7 @@ import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { Search, Grid, List, Plus, Sunny, Moon, Refresh, Setting } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useProfileStore } from '../../store/profile';
 import { useWorkspaceStore } from '../../store/workspace';
 import { useThemeStore } from '../../store/theme';
@@ -98,6 +115,12 @@ const { t, locale } = useI18n();
 
 const currentLocale = computed(() => locale.value);
 const refreshing = ref(false);
+
+/** 无边框窗口：自己提供最小化 / 最大化 / 关闭 */
+const appWindow = getCurrentWindow();
+
+const totalCount = computed(() => profileStore.profiles.length);
+const runningCount = computed(() => profileStore.profiles.filter(p => p.is_running).length);
 
 const handleLanguageChange = (lang: string) => {
   locale.value = lang;
@@ -303,6 +326,36 @@ const handleRefresh = async () => {
 
   .el-icon {
     font-size: 16px;
+  }
+}
+
+// 自绘窗口控制按钮
+.window-controls {
+  display: flex;
+  align-items: center;
+  margin-left: var(--space-2);
+}
+
+.win-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+
+  &:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  &.close:hover {
+    background: var(--danger-500);
+    color: #fff;
   }
 }
 

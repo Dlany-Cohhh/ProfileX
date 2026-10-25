@@ -17,9 +17,15 @@
         "officialSite": "Official Site",
         "refresh": "Refresh",
         "refreshed": "Refreshed",
+        "stats": "{running} running · {total} total",
         "theme": {
             "dark": "Switch to Dark Mode",
             "light": "Switch to Light Mode"
+        },
+        "window": {
+            "minimize": "Minimize",
+            "maximize": "Maximize / Restore",
+            "close": "Close"
         }
     },
     "main": {

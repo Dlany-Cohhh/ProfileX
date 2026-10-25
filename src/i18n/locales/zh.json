@@ -17,9 +17,15 @@
         "officialSite": "官方主页",
         "refresh": "刷新",
         "refreshed": "已刷新",
+        "stats": "{running} 个运行中 · 共 {total} 个",
         "theme": {
             "dark": "切换暗色模式",
             "light": "切换明亮模式"
+        },
+        "window": {
+            "minimize": "最小化",
+            "maximize": "最大化 / 还原",
+            "close": "关闭"
         }
     },
     "main": {
