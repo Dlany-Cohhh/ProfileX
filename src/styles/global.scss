@@ -56,6 +56,14 @@ body {
   height: 32px;
   padding: 0 16px;
 
+  // 图标 + 文字：Element 自己的间距只对「图标后紧跟 span」生效，
+  // 而插槽里的文字是纯文本节点，结果图标紧贴文字。这里统一用 gap 补出来。
+  > span:has(> .el-icon) {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
   &--primary {
     background: var(--primary-500);
     border: none;
