@@ -4,10 +4,10 @@
     <div class="header-left">
       <div class="brand">
         <div class="brand-icon">
-          <img src="../../assets/logo.png" alt="SpaceShift logo" class="logo-image" />
+          <img src="../../assets/logo.svg" alt="ProfileX logo" class="logo-image" />
         </div>
         <div class="brand-text">
-          <h1 class="brand-title">SpaceShift</h1>
+          <h1 class="brand-title">ProfileX</h1>
           <span class="brand-subtitle">
             {{ $t('header.stats', { running: runningCount, total: totalCount }) }}
           </span>
@@ -15,17 +15,23 @@
       </div>
     </div>
 
-    <div class="header-center">
+    <!-- 搜索：平时只是一个图标，点开才展开输入框 -->
+    <div class="header-center" :class="{ 'is-open': searchOpen }">
+      <el-tooltip :content="$t('header.search')" placement="bottom" :show-after="300" :disabled="searchOpen">
+        <button class="icon-btn search-trigger" @click="toggleSearch">
+          <Search :size="16" :stroke-width="1.75" />
+        </button>
+      </el-tooltip>
       <el-input
+        v-show="searchOpen"
+        ref="searchInputRef"
         v-model="profileStore.searchQuery"
         :placeholder="$t('header.search')"
         class="search-input"
         clearable
-      >
-        <template #prefix>
-          <Search :size="15" :stroke-width="1.75" />
-        </template>
-      </el-input>
+        @keyup.esc="resetSearch"
+        @blur="collapseSearch"
+      />
     </div>
 
     <div class="header-right">
@@ -81,8 +87,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, nextTick, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
+import type { InputInstance } from 'element-plus';
 import {
   Search,
   Languages,
@@ -108,6 +115,45 @@ const { t, locale } = useI18n();
 
 const currentLocale = computed(() => locale.value);
 const refreshing = ref(false);
+
+/**
+ * 搜索：默认收成一个图标，点开才展开输入框。
+ * 有关键字时不允许收起，否则筛选还生效但界面上看不出来。
+ */
+const searchOpen = ref(false);
+const searchInputRef = ref<InputInstance>();
+
+const openSearch = async () => {
+  searchOpen.value = true;
+  await nextTick();
+  searchInputRef.value?.focus();
+};
+
+const collapseSearch = () => {
+  if (!profileStore.searchQuery) {
+    searchOpen.value = false;
+  }
+};
+
+const resetSearch = () => {
+  profileStore.searchQuery = '';
+  searchOpen.value = false;
+};
+
+const toggleSearch = () => {
+  if (searchOpen.value) {
+    resetSearch();
+  } else {
+    openSearch();
+  }
+};
+
+// 带着上次的关键字进来（比如切了页面又回来），直接展开
+onMounted(() => {
+  if (profileStore.searchQuery) {
+    searchOpen.value = true;
+  }
+});
 
 /** 无边框窗口：自己提供最小化 / 最大化 / 关闭 */
 const runAction = async (action: 'minimize' | 'maximize' | 'close' | 'drag') => {
@@ -195,12 +241,13 @@ const handleRefresh = async () => {
     height: 34px;
     border-radius: var(--radius-lg);
     overflow: hidden;
-    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.22);
+    // 图标本身已经带配色，投影用中性色，别再叠一层蓝
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.14);
     transition: all 0.3s ease;
 
     &:hover {
       transform: scale(1.05);
-      box-shadow: 0 6px 16px rgba(59, 130, 246, 0.35);
+      box-shadow: 0 6px 16px rgba(15, 23, 42, 0.22);
     }
 
     .logo-image {
@@ -232,16 +279,31 @@ const handleRefresh = async () => {
 }
 
 .header-center {
-  // 不抢空间：配合 outer 的 space-between，搜索框落在品牌区与操作区之间，
-  // 窄窗口时优先压缩它
-  flex: 0 1 480px;
-  min-width: 220px;
-  max-width: 480px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  // 收起时只占一个图标的宽度，紧贴右侧图标组；点开才撑开成输入框
+  flex: 0 1 auto;
+  min-width: 0;
   margin: 0 var(--space-4);
+  // 收紧后不要飘在中间，贴着右侧那组图标
+  margin-left: auto;
+  transition: flex-basis var(--transition-fast);
+
+  &.is-open {
+    flex: 1 1 420px;
+    max-width: 460px;
+  }
+}
+
+.search-trigger {
+  flex-shrink: 0;
 }
 
 .search-input {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
 
   :deep(.el-input__wrapper) {
     border-radius: var(--radius-md);
@@ -367,10 +429,11 @@ const handleRefresh = async () => {
   }
 }
 
-// 窗口变窄时先让位给窗口控制按钮
+// 窗口变窄时先让位给窗口控制按钮：展开的搜索框跟着收窄
 @media (max-width: 1024px) {
-  .header-center {
-    max-width: 200px;
+  .header-center.is-open {
+    flex-basis: 240px;
+    max-width: 240px;
   }
 }
 
@@ -387,6 +450,7 @@ const handleRefresh = async () => {
 
   .header-center {
     margin: 0 var(--space-2);
+    margin-left: auto;
   }
 }
 

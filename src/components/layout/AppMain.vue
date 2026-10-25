@@ -181,7 +181,7 @@ const handleImport = async () => {
   const picked = await open({
     multiple: false,
     directory: false,
-    filters: [{ name: 'SpaceShift', extensions: ['zip'] }],
+    filters: [{ name: 'ProfileX', extensions: ['zip'] }],
   });
 
   // 取消选择时 open 返回 null

@@ -152,7 +152,7 @@ fn backup_dir_of(app: &AppHandle) -> AppResult<PathBuf> {
         _ => {
             let home = dirs::home_dir()
                 .ok_or_else(|| AppError::InvalidPath("无法定位用户目录".to_string()))?;
-            Ok(home.join("SpaceShift").join("Backups"))
+            Ok(home.join("ProfileX").join("Backups"))
         }
     }
 }
