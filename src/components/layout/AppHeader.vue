@@ -1,7 +1,7 @@
 <template>
-  <header class="app-header">
-    <!-- 无边框窗口：品牌区可作为拖动区 -->
-    <div class="header-left" data-tauri-drag-region>
+  <header class="app-header" @mousedown="startDrag">
+    <!-- 无边框窗口：整条标题栏都能拖动，交互元素除外 -->
+    <div class="header-left">
       <div class="brand">
         <div class="brand-icon">
           <img src="../../assets/logo.png" alt="SpaceShift logo" class="logo-image" />
@@ -83,13 +83,13 @@
 
       <!-- 无边框窗口的自绘控制按钮 -->
       <div class="window-controls">
-        <button class="win-btn" :title="$t('header.window.minimize')" @click="appWindow.minimize()">
+        <button class="win-btn" :title="$t('header.window.minimize')" @click="runAction('minimize')">
           <svg viewBox="0 0 10 10" width="10" height="10"><path d="M0 5h10" stroke="currentColor" stroke-width="1" /></svg>
         </button>
-        <button class="win-btn" :title="$t('header.window.maximize')" @click="appWindow.toggleMaximize()">
+        <button class="win-btn" :title="$t('header.window.maximize')" @click="runAction('maximize')">
           <svg viewBox="0 0 10 10" width="10" height="10"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1" /></svg>
         </button>
-        <button class="win-btn close" :title="$t('header.window.close')" @click="appWindow.close()">
+        <button class="win-btn close" :title="$t('header.window.close')" @click="runAction('close')">
           <svg viewBox="0 0 10 10" width="10" height="10"><path d="M0 0l10 10M10 0L0 10" stroke="currentColor" stroke-width="1" /></svg>
         </button>
       </div>
@@ -102,7 +102,7 @@ import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { Search, Grid, List, Plus, Sunny, Moon, Refresh, Setting } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { api } from '../../api';
 import { useProfileStore } from '../../store/profile';
 import { useWorkspaceStore } from '../../store/workspace';
 import { useThemeStore } from '../../store/theme';
@@ -117,7 +117,27 @@ const currentLocale = computed(() => locale.value);
 const refreshing = ref(false);
 
 /** 无边框窗口：自己提供最小化 / 最大化 / 关闭 */
-const appWindow = getCurrentWindow();
+const runAction = async (action: 'minimize' | 'maximize' | 'close' | 'drag') => {
+  try {
+    await api.windowAction(action);
+  } catch (error) {
+    console.error(error);
+  }
+};
+
+/**
+ * 拖动窗口。落在按钮、输入框等交互元素上时不触发，
+ * 否则会连搜索框里选文字都选不了
+ */
+const startDrag = (event: MouseEvent) => {
+  const target = event.target as HTMLElement | null;
+
+  if (target?.closest('button, input, textarea, select, label, a, .el-input, .el-radio-group')) {
+    return;
+  }
+
+  runAction('drag');
+};
 
 const totalCount = computed(() => profileStore.profiles.length);
 const runningCount = computed(() => profileStore.profiles.filter(p => p.is_running).length);
@@ -165,6 +185,7 @@ const handleRefresh = async () => {
 .header-left {
   display: flex;
   align-items: center;
+  flex-shrink: 0;
 }
 
 .brand {
@@ -217,9 +238,11 @@ const handleRefresh = async () => {
 }
 
 .header-center {
-  flex: 1;
+  // 空间不足时先压缩搜索框，保证右侧按钮完整可见
+  flex: 1 1 0;
+  min-width: 0;
   max-width: 400px;
-  margin: 0 var(--space-6);
+  margin: 0 var(--space-4);
 }
 
 .search-input {
@@ -261,7 +284,9 @@ const handleRefresh = async () => {
 .header-right {
   display: flex;
   align-items: center;
-  gap: var(--space-4);
+  gap: var(--space-3);
+  // 窗口控制按钮在最右侧，绝不能被挤到窗口外面去
+  flex-shrink: 0;
 }
 
 .icon-btn {
@@ -356,6 +381,17 @@ const handleRefresh = async () => {
   &.close:hover {
     background: var(--danger-500);
     color: #fff;
+  }
+}
+
+// 窗口变窄时先让位给窗口控制按钮
+@media (max-width: 1024px) {
+  .header-center {
+    max-width: 200px;
+  }
+
+  .view-toggle {
+    display: none;
   }
 }
 

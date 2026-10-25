@@ -142,4 +142,8 @@ export const api = {
 
   /** 手动记录当前窗口大小与位置 */
   saveWindowState: (): Promise<void> => invoke('save_window_state'),
+
+  /** 无边框窗口的操作：minimize / maximize / close / drag */
+  windowAction: (action: 'minimize' | 'maximize' | 'close' | 'drag'): Promise<void> =>
+    invoke('window_action', { action }),
 };

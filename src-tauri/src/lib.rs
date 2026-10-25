@@ -752,6 +752,41 @@ fn set_backup_retention(app_handle: AppHandle, keep: usize, state: State<AppStat
     get_paths(app_handle)
 }
 
+/// 无边框窗口的窗口操作。Tauri v2 并未实现 data-tauri-drag-region 属性，
+/// 拖动与控制按钮都必须自己调用底层接口
+#[tauri::command]
+fn window_action(app_handle: AppHandle, action: String) -> AppResult<()> {
+    let Some(window) = app_handle.get_webview_window("main") else {
+        return Ok(());
+    };
+
+    match action.as_str() {
+        "minimize" => {
+            let _ = window.minimize();
+        }
+        "maximize" => {
+            // WebviewWindow 没有 toggle，按当前状态自己切换
+            match window.is_maximized() {
+                Ok(true) => {
+                    let _ = window.unmaximize();
+                }
+                _ => {
+                    let _ = window.maximize();
+                }
+            }
+        }
+        "close" => {
+            let _ = window.close();
+        }
+        "drag" => {
+            let _ = window.start_dragging();
+        }
+        _ => {}
+    }
+
+    Ok(())
+}
+
 /// 记住窗口大小与位置，下次启动恢复
 #[tauri::command]
 fn save_window_state(app_handle: AppHandle) -> AppResult<()> {
@@ -1196,6 +1231,7 @@ pub fn run() {
             set_backup_dir,
             set_backup_retention,
             save_window_state,
+            window_action,
             move_profiles_to_workspace,
             backup_profiles,
         ])
