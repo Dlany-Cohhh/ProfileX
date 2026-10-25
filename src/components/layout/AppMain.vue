@@ -23,7 +23,7 @@
         {{ $t('header.newProfile') }}
       </el-button>
       <el-button v-if="!profileStore.searchQuery" plain @click="handleImport">
-        <el-icon><Upload /></el-icon>
+        <Import :size="15" :stroke-width="1.75" />
         {{ $t('main.import') }}
       </el-button>
     </el-empty>
@@ -38,6 +38,29 @@
           {{ $t('main.selectAll') }}
         </el-checkbox>
         <span class="toolbar-hint">{{ $t('main.selectAllHint', { n: visibleIds.length }) }}</span>
+
+        <!-- 视图切换放在导入备份左侧，跟列表内容属于同一层 -->
+        <div class="view-toggle">
+          <el-tooltip :content="$t('main.gridView')" placement="bottom" :show-after="300">
+            <button
+              class="view-btn"
+              :class="{ active: profileStore.viewMode === 'grid' }"
+              @click="profileStore.viewMode = 'grid'"
+            >
+              <LayoutGrid :size="15" :stroke-width="1.75" />
+            </button>
+          </el-tooltip>
+          <el-tooltip :content="$t('main.listView')" placement="bottom" :show-after="300">
+            <button
+              class="view-btn"
+              :class="{ active: profileStore.viewMode === 'list' }"
+              @click="profileStore.viewMode = 'list'"
+            >
+              <List :size="15" :stroke-width="1.75" />
+            </button>
+          </el-tooltip>
+        </div>
+
         <el-button class="toolbar-import" plain :loading="importing" @click="handleImport">
           <Import :size="15" :stroke-width="1.75" />
           {{ $t('main.import') }}
@@ -133,7 +156,7 @@ import ProfileCard from '../ProfileCard.vue';
 import { api } from '../../api';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { VideoPlay, Brush, Folder } from '@element-plus/icons-vue';
-import { Import } from 'lucide-vue-next';
+import { Import, LayoutGrid, List } from 'lucide-vue-next';
 import { open } from '@tauri-apps/plugin-dialog';
 import { formatSize } from '../../utils/format';
 import { PROFILE_REORDER_TYPE } from '../../utils/dnd';
@@ -478,8 +501,48 @@ const handleDelete = async (profile: Profile) => {
   color: var(--text-tertiary);
 }
 
-.toolbar-import {
+// 视图切换：靠右贴住导入按钮，和它算一组
+.view-toggle {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
+
+.view-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  border-radius: calc(var(--radius-md) - 2px);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+
+  svg {
+    display: block;
+  }
+
+  &:hover {
+    color: var(--text-primary);
+  }
+
+  &.active {
+    background: var(--bg-primary);
+    color: var(--primary-500);
+    box-shadow: var(--shadow-xs);
+  }
+}
+
+.toolbar-import {
+  margin-left: 0;
 }
 
 .profiles-container {

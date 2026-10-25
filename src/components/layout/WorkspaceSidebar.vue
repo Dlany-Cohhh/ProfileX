@@ -1,20 +1,38 @@
 <template>
-  <aside class="workspace-sidebar">
+  <aside ref="sidebarRef" class="workspace-sidebar" :class="{ collapsed, resizing }" :style="sidebarStyle">
+    <!-- 右边框拖拽调宽 -->
+    <div v-if="!collapsed" class="resize-handle" @mousedown.prevent="startResize" />
+
     <div class="sidebar-title">
-      <span>{{ $t('workspace.title') }}</span>
-      <el-button link size="small" class="add-btn" @click="openCreate">
-        <el-icon><Plus /></el-icon>
-      </el-button>
+      <span v-if="!collapsed" class="title-text">{{ $t('workspace.title') }}</span>
+      <div class="title-actions">
+        <el-button link size="small" class="header-btn" :title="$t('workspace.title')" @click="openCreate">
+          <el-icon><Plus /></el-icon>
+        </el-button>
+        <el-button
+          link
+          size="small"
+          class="header-btn"
+          :class="{ 'collapse-btn': true }"
+          @click="toggleCollapsed"
+        >
+          <el-icon>
+            <Fold v-if="!collapsed" />
+            <Expand v-else />
+          </el-icon>
+        </el-button>
+      </div>
     </div>
 
     <ul class="workspace-list">
       <li
         :class="['ws-item', { active: workspaceStore.activeWorkspaceId === null }]"
+        :title="collapsed ? $t('workspace.all') : undefined"
         @click="workspaceStore.activeWorkspaceId = null"
       >
         <el-icon class="ws-lead"><Menu /></el-icon>
-        <span class="ws-name">{{ $t('workspace.all') }}</span>
-        <span class="ws-count">{{ profileStore.profiles.length }}</span>
+        <span v-if="!collapsed" class="ws-name">{{ $t('workspace.all') }}</span>
+        <span v-if="!collapsed" class="ws-count">{{ profileStore.profiles.length }}</span>
       </li>
 
       <li
@@ -22,14 +40,15 @@
           'ws-item',
           { active: workspaceStore.activeWorkspaceId === UNASSIGNED, 'drop-target': dragOverId === UNASSIGNED }
         ]"
+        :title="collapsed ? $t('workspace.unassigned') : undefined"
         @click="workspaceStore.activeWorkspaceId = UNASSIGNED"
         @dragover.prevent="dragOverId = UNASSIGNED"
         @dragleave="clearDragOver(UNASSIGNED)"
         @drop.prevent="handleDrop($event, UNASSIGNED)"
       >
         <el-icon class="ws-lead"><FolderOpened /></el-icon>
-        <span class="ws-name">{{ $t('workspace.unassigned') }}</span>
-        <span class="ws-count">{{ workspaceStore.counts[UNASSIGNED] ?? 0 }}</span>
+        <span v-if="!collapsed" class="ws-name">{{ $t('workspace.unassigned') }}</span>
+        <span v-if="!collapsed" class="ws-count">{{ workspaceStore.counts[UNASSIGNED] ?? 0 }}</span>
       </li>
     </ul>
 
@@ -49,9 +68,9 @@
         @drop.prevent="handleDrop($event, ws.id)"
       >
         <span class="ws-lead ws-badge" :style="{ background: tint(ws.color) }">{{ ws.icon || '📁' }}</span>
-        <span class="ws-name" :title="ws.description || ws.name">{{ ws.name }}</span>
-        <span class="ws-count">{{ workspaceStore.counts[ws.id] ?? 0 }}</span>
-        <span class="ws-actions">
+        <span v-if="!collapsed" class="ws-name" :title="ws.description || ws.name">{{ ws.name }}</span>
+        <span v-if="!collapsed" class="ws-count">{{ workspaceStore.counts[ws.id] ?? 0 }}</span>
+        <span v-if="!collapsed" class="ws-actions">
           <el-icon class="act" @click.stop="openEdit(ws)"><EditPen /></el-icon>
           <el-icon class="act danger" @click.stop="handleDelete(ws)"><Delete /></el-icon>
         </span>
@@ -66,28 +85,30 @@
       <el-button
         class="footer-btn"
         size="small"
+        :title="collapsed ? $t('workspace.actions.launchAll') : undefined"
         :loading="workspaceStore.launching"
         @click="workspaceStore.launchActiveWorkspace"
       >
         <el-icon><VideoPlay /></el-icon>
-        {{ $t('workspace.actions.launchAll') }}
+        <span v-if="!collapsed">{{ $t('workspace.actions.launchAll') }}</span>
       </el-button>
       <el-button
         class="footer-btn"
         size="small"
+        :title="collapsed ? $t('workspace.actions.backupAll') : undefined"
         :loading="workspaceStore.backing"
         @click="workspaceStore.backupActiveWorkspace"
       >
         <el-icon v-if="!workspaceStore.backing"><DocumentCopy /></el-icon>
-        <template v-if="workspaceStore.backing && workspaceStore.backupProgress">
+        <span v-if="!collapsed && workspaceStore.backing && workspaceStore.backupProgress">
           {{
             $t('workspace.actions.backingProgress', {
               current: workspaceStore.backupProgress.current,
               total: workspaceStore.backupProgress.total
             })
           }}
-        </template>
-        <template v-else>{{ $t('workspace.actions.backupAll') }}</template>
+        </span>
+        <span v-else-if="!collapsed">{{ $t('workspace.actions.backupAll') }}</span>
       </el-button>
 
       <div v-if="workspaceStore.backing" class="backup-progress">
@@ -107,10 +128,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onBeforeUnmount } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { Plus, Menu, FolderOpened, EditPen, Delete, VideoPlay, DocumentCopy } from '@element-plus/icons-vue';
+import {
+  Plus,
+  Menu,
+  FolderOpened,
+  EditPen,
+  Delete,
+  VideoPlay,
+  DocumentCopy,
+  Fold,
+  Expand,
+} from '@element-plus/icons-vue';
 import type { Workspace } from '../../types';
 import { useProfileStore } from '../../store/profile';
 import { useWorkspaceStore, UNASSIGNED } from '../../store/workspace';
@@ -125,6 +156,67 @@ const showDialog = ref(false);
 const editingWorkspace = ref<Workspace | null>(null);
 /** 当前被拖拽悬停的工作区 id，用于拖放高亮 */
 const dragOverId = ref<string | null>(null);
+
+const SIDEBAR_COLLAPSED_KEY = 'spaceshift.sidebar.collapsed';
+const SIDEBAR_WIDTH_KEY = 'spaceshift.sidebar.width';
+const MIN_SIDEBAR_WIDTH = 180;
+const MAX_SIDEBAR_WIDTH = 420;
+const COLLAPSED_SIDEBAR_WIDTH = 56;
+
+const sidebarRef = ref<HTMLElement | null>(null);
+
+/** 收起状态和宽度都记住，下次打开还是老样子 */
+const collapsed = ref(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1');
+
+const clampWidth = (value: number) =>
+  Number.isFinite(value) ? Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, value)) : 220;
+
+const storedWidth = Number(localStorage.getItem(SIDEBAR_WIDTH_KEY));
+const sidebarWidth = ref(storedWidth > 0 ? clampWidth(storedWidth) : 220);
+
+const sidebarStyle = computed(() => {
+  const width = collapsed.value ? COLLAPSED_SIDEBAR_WIDTH : sidebarWidth.value;
+  // flex-basis 一起改，否则 flex 布局里宽度不生效
+  return { width: `${width}px`, flexBasis: `${width}px` };
+});
+
+const toggleCollapsed = () => {
+  collapsed.value = !collapsed.value;
+  localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed.value ? '1' : '0');
+};
+
+// 拖右边框调宽：监听挂在 document 上，鼠标移出侧边栏也不会断
+const resizing = ref(false);
+
+const onResizeMove = (event: MouseEvent) => {
+  if (!resizing.value) return;
+
+  const left = sidebarRef.value?.getBoundingClientRect().left ?? 0;
+  sidebarWidth.value = clampWidth(event.clientX - left);
+};
+
+const stopResize = () => {
+  if (!resizing.value) return;
+
+  resizing.value = false;
+  document.removeEventListener('mousemove', onResizeMove);
+  document.removeEventListener('mouseup', stopResize);
+  document.body.style.cursor = '';
+  document.body.style.userSelect = '';
+  localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth.value));
+};
+
+const startResize = () => {
+  if (resizing.value || collapsed.value) return;
+
+  resizing.value = true;
+  document.body.style.cursor = 'col-resize';
+  document.body.style.userSelect = 'none';
+  document.addEventListener('mousemove', onResizeMove);
+  document.addEventListener('mouseup', stopResize);
+};
+
+onBeforeUnmount(stopResize);
 
 const backupPercent = computed(() => {
   const progress = workspaceStore.backupProgress;
@@ -228,6 +320,30 @@ const handleDelete = async (workspace: Workspace) => {
   background: var(--bg-primary);
   border-right: 1px solid var(--border-light);
   overflow: hidden;
+  // 收起/展开时平滑过渡；拖拽调宽时不加，避免跟手感打架
+  transition: width 0.18s ease, flex-basis 0.18s ease, padding 0.18s ease;
+
+  &.resizing {
+    transition: none;
+  }
+}
+
+// 拖右边框改宽度
+.resize-handle {
+  position: absolute;
+  top: 0;
+  // 贴在内侧，父级 overflow: hidden 不会裁掉
+  right: 0;
+  width: 5px;
+  height: 100%;
+  z-index: 4;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.15s ease;
+
+  &:hover {
+    background: var(--primary-400);
+  }
 }
 
 .sidebar-title {
@@ -241,9 +357,72 @@ const handleDelete = async (workspace: Workspace) => {
   text-transform: uppercase;
   color: var(--text-tertiary);
 
-  .add-btn {
+  .title-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .title-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex: 0 0 auto;
+  }
+
+  .header-btn {
     padding: 2px;
-    height: auto;
+    height: 22px;
+    color: var(--text-tertiary);
+
+    &:hover {
+      color: var(--primary-500);
+    }
+  }
+}
+
+// 收起后只留图标：宽度 56px，标题与文字全部隐藏
+.workspace-sidebar.collapsed {
+  padding-left: 6px;
+  padding-right: 6px;
+
+  .sidebar-title {
+    flex-direction: column;
+    gap: 6px;
+    padding: 0 0 var(--space-2);
+  }
+
+  .title-actions {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .ws-item {
+    justify-content: center;
+    padding: var(--space-2) 0;
+    gap: 0;
+  }
+
+  .ws-divider {
+    margin: var(--space-2) 0;
+  }
+
+  .sidebar-footer {
+    align-items: stretch;
+  }
+
+  .footer-btn {
+    width: 100%;
+    padding: 0;
+    justify-content: center;
+
+    :deep(.el-icon) {
+      margin-right: 0;
+    }
+  }
+
+  .backup-progress {
+    display: none;
   }
 }
 

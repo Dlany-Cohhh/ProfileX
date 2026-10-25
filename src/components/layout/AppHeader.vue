@@ -64,19 +64,6 @@
         </el-tooltip>
       </div>
 
-      <el-radio-group v-model="profileStore.viewMode" size="small" class="view-toggle">
-        <el-tooltip :content="$t('main.gridView')" placement="bottom">
-          <el-radio-button label="grid">
-            <LayoutGrid :size="15" :stroke-width="1.75" />
-          </el-radio-button>
-        </el-tooltip>
-        <el-tooltip :content="$t('main.listView')" placement="bottom">
-          <el-radio-button label="list">
-            <List :size="15" :stroke-width="1.75" />
-          </el-radio-button>
-        </el-tooltip>
-      </el-radio-group>
-
       <el-button type="primary" @click="$emit('create')" class="create-btn">
         <Plus :size="16" :stroke-width="2" />
         <span>{{ $t('header.newProfile') }}</span>
@@ -108,8 +95,6 @@ import {
   Settings2,
   Moon,
   Sun,
-  LayoutGrid,
-  List,
   Plus,
   Minus,
   Square,
@@ -306,11 +291,11 @@ const handleRefresh = async () => {
   flex-shrink: 0;
 }
 
-// 同组图标间距 4px，比组间距小，形成层级
+// 同组图标之间留白，避免看着挤成一团
 .icon-group {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-2);
 }
 
 .icon-btn {
@@ -349,44 +334,6 @@ const handleRefresh = async () => {
 @keyframes icon-spin {
   to {
     transform: rotate(360deg);
-  }
-}
-
-// 视图切换降权：去掉整块蓝色，激活态改成浅蓝底 + 主色线条，
-// 蓝色只留给「新建配置」这一个主操作
-.view-toggle {
-  :deep(.el-radio-button__inner) {
-    padding: 6px 10px;
-    border: none;
-    border-radius: var(--radius-md);
-    background: transparent;
-    color: var(--text-tertiary);
-    box-shadow: none;
-    transition: all var(--transition-fast);
-
-    svg {
-      display: block;
-    }
-
-    &:hover {
-      color: var(--text-primary);
-      background: var(--bg-hover);
-    }
-  }
-
-  // 去掉边框后要还原 EP 为了叠边框用的负 margin
-  :deep(.el-radio-button:not(:first-child) .el-radio-button__inner) {
-    margin-left: 0;
-    border-left: none;
-  }
-
-  // 同时压住 Element 自带的选中样式（它用 :checked + __inner，权重不低）
-  :deep(.el-radio-button.is-active .el-radio-button__inner),
-  :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
-    background: var(--primary-50);
-    color: var(--primary-500);
-    border-color: transparent;
-    box-shadow: none;
   }
 }
 
@@ -443,10 +390,6 @@ const handleRefresh = async () => {
 @media (max-width: 1024px) {
   .header-center {
     max-width: 200px;
-  }
-
-  .view-toggle {
-    display: none;
   }
 }
 
