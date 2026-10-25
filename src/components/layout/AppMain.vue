@@ -14,22 +14,9 @@
       </div>
     </div>
 
-    <el-empty
-      v-else-if="workspaceStore.visibleProfiles.length === 0"
-      :description="emptyDescription"
-      class="empty-state"
-    >
-      <el-button v-if="!profileStore.searchQuery" type="primary" @click="$emit('create')">
-        {{ $t('header.newProfile') }}
-      </el-button>
-      <el-button v-if="!profileStore.searchQuery" plain @click="handleImport">
-        <Import :size="15" :stroke-width="1.75" />
-        {{ $t('main.import') }}
-      </el-button>
-    </el-empty>
-
     <template v-else>
-      <div class="list-toolbar">
+      <!-- 只要库里还有配置就保留工具栏：筛选把列表筛空时，条件还能在这里改回来 -->
+      <div v-if="profileStore.profiles.length > 0" class="list-toolbar">
         <el-checkbox
           :model-value="allSelected"
           :indeterminate="partiallySelected"
@@ -154,7 +141,28 @@
         </div>
       </div>
 
+      <!-- 筛选筛空的，给一键清除，而不是让人以为库是空的 -->
+      <el-empty
+        v-if="workspaceStore.visibleProfiles.length === 0"
+        :description="emptyDescription"
+        class="empty-state"
+      >
+        <el-button v-if="hasActiveFilter" @click="handleClearFilters">
+          {{ $t('main.clearFilters') }}
+        </el-button>
+        <template v-else>
+          <el-button type="primary" @click="$emit('create')">
+            {{ $t('header.newProfile') }}
+          </el-button>
+          <el-button plain @click="handleImport">
+            <Import :size="15" :stroke-width="1.75" />
+            {{ $t('main.import') }}
+          </el-button>
+        </template>
+      </el-empty>
+
       <div
+        v-else
         ref="gridRef"
         :class="['profiles-container', profileStore.viewMode === 'grid' ? 'grid-view' : 'list-view']"
         @dragstart="onDragStart"
@@ -524,11 +532,26 @@ const handleBatchClearCache = async () => {
   }
 };
 
+/** 搜索或筛选是否正把列表筛掉（决定空态给「清除筛选」还是「新建配置」） */
+const hasActiveFilter = computed(
+  () =>
+    !!profileStore.searchQuery.trim() ||
+    profileStore.statusFilter !== 'all' ||
+    !!profileStore.tagFilter,
+);
+
 const emptyDescription = computed(() => {
-  if (profileStore.searchQuery) return t('common.error');
+  if (hasActiveFilter.value) return t('main.noMatchingProfiles');
   if (workspaceStore.activeWorkspaceId !== null) return t('workspace.messages.noProfiles');
   return t('main.noProfiles');
 });
+
+/** 一键回到「全部状态 + 无标签 + 无搜索」 */
+const handleClearFilters = () => {
+  profileStore.searchQuery = '';
+  profileStore.statusFilter = 'all';
+  profileStore.tagFilter = '';
+};
 
 const handleOpenDir = async (profile: Profile) => {
   try {
