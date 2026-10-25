@@ -92,6 +92,8 @@
             "homepage": "Home Page",
             "homepagePlaceholder": "https://www.google.com",
             "icon": "Profile Icon",
+            "iconColor": "Icon Color",
+            "iconColorAuto": "Auto (by profile)",
             "tags": "Tags",
             "tagsPlaceholder": "Enter tags & press Enter (optional)",
             "forwardPortPlaceholder": "Leave empty to disable forwarding",

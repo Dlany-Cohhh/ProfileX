@@ -16,6 +16,8 @@ export interface Profile {
   homepage?: string;
   icon_path?: string;
   icon_base64?: string;
+  /** 卡片色块的自定义颜色，为空时按 id 自动取色 */
+  icon_color?: string;
   tags?: string;
   created_at: string;
   updated_at: string;

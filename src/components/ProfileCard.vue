@@ -129,7 +129,7 @@ import { Copy } from 'lucide-vue-next';
 import type { Profile } from '../types';
 import { useProfileStore } from '../store/profile';
 import { formatSize } from '../utils/format';
-import { macaronColor } from '../utils/macaron';
+import { macaronColor, textColorFor } from '../utils/macaron';
 import { PROFILE_DRAG_TYPE, PROFILE_REORDER_TYPE } from '../utils/dnd';
 import ProfileCardMenu from './ProfileCardMenu.vue';
 
@@ -180,8 +180,12 @@ const formatDate = (dateStr: string) => {
 
 const isTemplate = computed(() => profileStore.templateIds.includes(props.profile.id));
 
-/** 无自定义图标时，按 id 取一个稳定的马卡龙色，配合首字生成可区分的色块头像 */
-const avatarColor = computed(() => macaronColor(props.profile.id));
+/** 无自定义图标时：优先用配置自己选的颜色，否则按 id 取一个稳定的马卡龙色 */
+const avatarColor = computed(() => {
+  const custom = props.profile.icon_color;
+
+  return custom ? { bg: custom, fg: textColorFor(custom) } : macaronColor(props.profile.id);
+});
 
 const avatarInitial = computed(() => (props.profile.name || '?').trim().slice(0, 1).toUpperCase());
 

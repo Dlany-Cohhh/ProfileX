@@ -13,6 +13,7 @@ export const api = {
     chromePath?: string,
     homepage?: string,
     iconBase64?: string,
+    iconColor?: string,
     tags?: string,
     forwardPort?: number,
     disableExtensions?: boolean,
@@ -28,6 +29,7 @@ export const api = {
       chromePath,
       homepage,
       iconBase64,
+      iconColor,
       tags,
       forwardPort,
       disableExtensions,
@@ -44,8 +46,9 @@ export const api = {
 
   getTemplateIds: (): Promise<string[]> => invoke('get_template_ids'),
 
-  updateProfile: (id: string, name?: string, chromePath?: string, homepage?: string, iconBase64?: string, tags?: string, forwardPort?: number | null, disableExtensions?: boolean, debuggerMode?: boolean, debugPortConfig?: number | null, launchArgs?: LaunchArgs): Promise<boolean> =>
-    invoke('update_profile', { id, name, chromePath, homepage, iconBase64, tags, forwardPort, disableExtensions, debuggerMode, debugPortConfig, launchArgs }),
+  /** iconColor 传空串表示清空，回到按 id 自动取色 */
+  updateProfile: (id: string, name?: string, chromePath?: string, homepage?: string, iconBase64?: string, iconColor?: string, tags?: string, forwardPort?: number | null, disableExtensions?: boolean, debuggerMode?: boolean, debugPortConfig?: number | null, launchArgs?: LaunchArgs): Promise<boolean> =>
+    invoke('update_profile', { id, name, chromePath, homepage, iconBase64, iconColor, tags, forwardPort, disableExtensions, debuggerMode, debugPortConfig, launchArgs }),
 
   deleteProfile: (id: string): Promise<boolean> => invoke('delete_profile', { id }),
 

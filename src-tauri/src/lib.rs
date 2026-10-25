@@ -263,6 +263,7 @@ fn create_profile(
     chrome_path: Option<String>,
     homepage: Option<String>,
     icon_base64: Option<String>,
+    icon_color: Option<String>,
     tags: Option<String>,
     forward_port: Option<u16>,
     disable_extensions: Option<bool>,
@@ -324,7 +325,7 @@ fn create_profile(
     };
 
     let db = state.db.lock().map_err(|e| AppError::Other(e.to_string()))?;
-    Ok(db.create_profile(&name, &profile_dir.to_string_lossy(), chrome_path.as_deref(), homepage.as_deref(), icon_base64.as_deref(), tags.as_deref(), forward_port, disable_extensions, debugger_mode.unwrap_or(true), debug_port_config, workspace_id.as_deref(), launch_args.as_ref())?)
+    Ok(db.create_profile(&name, &profile_dir.to_string_lossy(), chrome_path.as_deref(), homepage.as_deref(), icon_base64.as_deref(), icon_color.as_deref(), tags.as_deref(), forward_port, disable_extensions, debugger_mode.unwrap_or(true), debug_port_config, workspace_id.as_deref(), launch_args.as_ref())?)
 }
 
 #[tauri::command]
@@ -350,6 +351,7 @@ fn update_profile(
     chrome_path: Option<String>,
     homepage: Option<String>,
     icon_base64: Option<String>,
+    icon_color: Option<String>,
     tags: Option<String>,
     forward_port: Option<u16>,
     disable_extensions: Option<bool>,
@@ -359,7 +361,7 @@ fn update_profile(
     state: State<AppState>,
 ) -> AppResult<bool> {
     let db = state.db.lock().map_err(|e| AppError::Other(e.to_string()))?;
-    Ok(db.update_profile(&id, name.as_deref(), chrome_path.as_deref(), homepage.as_deref(), icon_base64.as_deref(), tags.as_deref(), forward_port, disable_extensions, debugger_mode, debug_port_config, launch_args.as_ref())?)
+    Ok(db.update_profile(&id, name.as_deref(), chrome_path.as_deref(), homepage.as_deref(), icon_base64.as_deref(), icon_color.as_deref(), tags.as_deref(), forward_port, disable_extensions, debugger_mode, debug_port_config, launch_args.as_ref())?)
 }
 
 /// 批量移动到同一工作区：一次调用完成，避免前端逐个往返
@@ -667,6 +669,7 @@ async fn import_profile_backup(
             meta_profile.as_ref().and_then(|p| p.chrome_path.as_deref()),
             meta_profile.as_ref().and_then(|p| p.homepage.as_deref()),
             meta_profile.as_ref().and_then(|p| p.icon_base64.as_deref()),
+            meta_profile.as_ref().and_then(|p| p.icon_color.as_deref()),
             meta_profile.as_ref().and_then(|p| p.tags.as_deref()),
             meta_profile.as_ref().and_then(|p| p.forward_port),
             meta_profile.as_ref().map(|p| p.disable_extensions).unwrap_or(false),

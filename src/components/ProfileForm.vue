@@ -106,7 +106,7 @@
           <div class="icon-selector">
             <div class="current-icon" @click="triggerFileInput">
               <img v-if="form.icon_base64" :src="form.icon_base64" alt="Icon" />
-              <el-avatar v-else :size="64" :icon="UserFilled" />
+              <span v-else class="current-icon-fallback" :style="previewStyle">{{ previewInitial }}</span>
               <div class="icon-overlay">
                 <el-icon><Camera /></el-icon>
               </div>
@@ -118,6 +118,29 @@
               style="display: none"
               @change="handleFileChange"
             />
+          </div>
+
+          <!-- 不传图标时用这个颜色画色块头像；选「自动」则按配置取色 -->
+          <div class="color-picker-label">{{ $t('profile.form.iconColor') }}</div>
+          <div class="color-picker">
+            <button
+              v-for="color in macaronPalette"
+              :key="color.bg"
+              type="button"
+              class="color-swatch"
+              :class="{ active: form.icon_color === color.bg }"
+              :style="{ background: color.bg }"
+              @click="toggleColor(color.bg)"
+            />
+            <button
+              type="button"
+              class="color-swatch auto"
+              :class="{ active: !form.icon_color }"
+              :title="$t('profile.form.iconColorAuto')"
+              @click="toggleColor('')"
+            >
+              A
+            </button>
           </div>
         </el-form-item>
 
@@ -267,9 +290,10 @@
 import { ref, computed, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { ElMessage } from 'element-plus';
-import { UserFilled, Camera } from '@element-plus/icons-vue';
+import { Camera } from '@element-plus/icons-vue';
 import type { Profile, LaunchArgs } from '../types';
 import { api } from '../api';
+import { MACARON_PALETTE, macaronColor, textColorFor } from '../utils/macaron';
 import { useWorkspaceStore } from '../store/workspace';
 import { useProfileStore } from '../store/profile';
 
@@ -351,6 +375,7 @@ const form = ref({
   chrome_path: '',
   homepage: '',
   icon_base64: '',
+  icon_color: '',
   tags: '',
   forward_port: undefined as number | undefined,
   disable_extensions: true,
@@ -407,6 +432,7 @@ watch(
         chrome_path: profile.chrome_path || '',
         homepage: profile.homepage || '',
         icon_base64: profile.icon_base64 || '',
+        icon_color: profile.icon_color || '',
         tags: profile.tags || '',
         forward_port: profile.forward_port,
         disable_extensions: profile.disable_extensions ?? true,
@@ -425,6 +451,7 @@ watch(
         chrome_path: '',
         homepage: '',
         icon_base64: '',
+        icon_color: '',
         tags: '',
         forward_port: undefined,
         disable_extensions: true,
@@ -445,6 +472,27 @@ watch(
 const triggerFileInput = () => {
   fileInput.value?.click();
 };
+
+/** 可选色板，与卡片默认取色用的是同一套 */
+const macaronPalette = MACARON_PALETTE;
+
+const toggleColor = (bg: string) => {
+  form.value.icon_color = form.value.icon_color === bg ? '' : bg;
+};
+
+/** 预览色块：选了颜色就用选的，没选就按名字先算一个，和卡片上的效果一致 */
+const previewColor = computed(() => {
+  const custom = form.value.icon_color;
+
+  return custom ? { bg: custom, fg: textColorFor(custom) } : macaronColor(form.value.name || 'preview');
+});
+
+const previewStyle = computed(() => ({
+  background: previewColor.value.bg,
+  color: previewColor.value.fg,
+}));
+
+const previewInitial = computed(() => (form.value.name || '?').trim().slice(0, 1).toUpperCase());
 
 const handleFileChange = (event: Event) => {
   const target = event.target as HTMLInputElement;
@@ -483,6 +531,8 @@ const handleSubmit = async () => {
         form.value.chrome_path || undefined,
         form.value.homepage || undefined,
         form.value.icon_base64 || undefined,
+        // 空串表示清空，回到按 id 自动取色
+        form.value.icon_color,
         tags || undefined,
         form.value.forward_port ?? null,
         form.value.disable_extensions,
@@ -503,6 +553,7 @@ const handleSubmit = async () => {
         form.value.chrome_path || undefined,
         form.value.homepage || undefined,
         form.value.icon_base64 || undefined,
+        form.value.icon_color || undefined,
         tags || undefined,
         form.value.forward_port || undefined,
         form.value.disable_extensions,
@@ -663,12 +714,60 @@ const handleSubmit = async () => {
     border-radius: var(--radius-full);
   }
 
-  :deep(.el-avatar) {
+  .current-icon-fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
     width: 100%;
     height: 100%;
-    font-size: 28px;
-    background: linear-gradient(135deg, var(--primary-100), var(--secondary-100));
-    color: var(--primary-600);
+    font-size: 26px;
+    font-weight: var(--font-semibold);
+  }
+}
+
+.color-picker-label {
+  margin-top: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  text-align: center;
+}
+
+.color-picker {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 6px;
+  max-width: 176px;
+}
+
+.color-swatch {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+
+  &:hover {
+    transform: scale(1.12);
+  }
+
+  &.active {
+    border-color: transparent;
+    box-shadow: 0 0 0 2px var(--primary-400);
+  }
+
+  // 「自动」：不指定颜色，按配置 id 取色
+  &.auto {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: var(--font-semibold);
+    color: var(--text-tertiary);
+    background: var(--bg-secondary);
   }
 }
 

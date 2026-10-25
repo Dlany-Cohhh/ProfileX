@@ -92,6 +92,8 @@
             "homepage": "主页",
             "homepagePlaceholder": "https://www.google.com",
             "icon": "配置头像",
+            "iconColor": "图标颜色",
+            "iconColorAuto": "自动（按配置取色）",
             "tags": "标签",
             "tagsPlaceholder": "输入标签并回车 (可选)",
             "forwardPortPlaceholder": "不填则不开启转发",
