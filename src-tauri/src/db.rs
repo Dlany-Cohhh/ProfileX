@@ -74,6 +74,8 @@ fn profile_from_row(row: &Row) -> SqliteResult<Profile> {
         launch_args: launch_args_json
             .and_then(|json| serde_json::from_str::<LaunchArgs>(&json).ok())
             .unwrap_or_default(),
+        is_template: row.get::<_, i32>("is_template")? != 0,
+        sort_order: row.get("sort_order")?,
     })
 }
 
@@ -99,6 +101,8 @@ pub struct Profile {
     pub debug_port_config: Option<u16>,
     pub workspace_id: Option<String>,
     pub launch_args: LaunchArgs,
+    pub is_template: bool,
+    pub sort_order: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -405,13 +409,116 @@ impl Database {
             debug_port_config,
             workspace_id: workspace_id.map(|s| s.to_string()),
             launch_args: launch_args.cloned().unwrap_or_default(),
+            is_template: false,
+            sort_order: Some(sort_order),
         })
+    }
+
+    /// 导入备份时整条写入：连 id、排序、模板标记都按备份里的原样恢复
+    #[allow(clippy::too_many_arguments)]
+    pub fn import_profile(
+        &self,
+        id: &str,
+        name: &str,
+        data_dir_path: &str,
+        chrome_path: Option<&str>,
+        homepage: Option<&str>,
+        icon_base64: Option<&str>,
+        tags: Option<&str>,
+        forward_port: Option<u16>,
+        disable_extensions: bool,
+        debugger_mode: bool,
+        debug_port_config: Option<u16>,
+        workspace_id: Option<&str>,
+        launch_args: Option<&LaunchArgs>,
+        is_template: bool,
+        sort_order: i64,
+    ) -> SqliteResult<Profile> {
+        let now = Utc::now().to_rfc3339();
+        let launch_args_json = launch_args.and_then(|args| serde_json::to_string(args).ok());
+
+        self.conn.execute(
+            "INSERT INTO profiles (id, name, data_dir_path, chrome_path, homepage, icon_base64, tags, forward_port, disable_extensions, debugger_mode, debug_port_config, workspace_id, sort_order, launch_args, is_template, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+            // 超过 16 个参数，元组不再实现 Params，改用 params!
+            rusqlite::params![
+                id, name, data_dir_path, chrome_path, homepage, icon_base64, tags,
+                forward_port.map(|v| v as i32),
+                if disable_extensions { 1 } else { 0 },
+                if debugger_mode { 1 } else { 0 },
+                debug_port_config.map(|v| v as i32),
+                workspace_id, sort_order, &launch_args_json,
+                if is_template { 1 } else { 0 },
+                &now, &now
+            ],
+        )?;
+
+        Ok(Profile {
+            id: id.to_string(),
+            name: name.to_string(),
+            data_dir_path: data_dir_path.to_string(),
+            chrome_path: chrome_path.map(|s| s.to_string()),
+            homepage: homepage.map(|s| s.to_string()),
+            icon_path: None,
+            icon_base64: icon_base64.map(|s| s.to_string()),
+            tags: tags.map(|s| s.to_string()),
+            created_at: now.clone(),
+            updated_at: now,
+            last_opened_at: None,
+            is_running: false,
+            pid: None,
+            debug_port: None,
+            forward_port,
+            disable_extensions,
+            debugger_mode,
+            debug_port_config,
+            workspace_id: workspace_id.map(|s| s.to_string()),
+            launch_args: launch_args.cloned().unwrap_or_default(),
+            is_template,
+            sort_order: Some(sort_order),
+        })
+    }
+
+    /// 当前最小的排序值，新配置排到最前时要用到
+    pub fn min_sort_order(&self) -> Option<i64> {
+        self.conn
+            .query_row("SELECT MIN(sort_order) FROM profiles", [], |row| row.get(0))
+            .unwrap_or(None)
+    }
+
+    /// 工作区按 id 还原：已存在就直接复用，否则用备份里的 id 与信息新建
+    pub fn ensure_workspace(
+        &self,
+        id: &str,
+        name: &str,
+        icon: Option<&str>,
+        color: Option<&str>,
+        description: Option<&str>,
+    ) -> SqliteResult<String> {
+        let exists: Option<String> = self
+            .conn
+            .query_row("SELECT id FROM workspaces WHERE id = ?1", [id], |row| row.get(0))
+            .ok();
+
+        if let Some(found) = exists {
+            return Ok(found);
+        }
+
+        let now = Utc::now().to_rfc3339();
+
+        self.conn.execute(
+            "INSERT INTO workspaces (id, name, icon, color, description, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            (id, name, icon, color, description, &now, &now),
+        )?;
+
+        Ok(id.to_string())
     }
 
     pub fn get_all_profiles(&self) -> SqliteResult<Vec<Profile>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, name, data_dir_path, chrome_path, homepage, icon_path, icon_base64, tags,
-                    created_at, updated_at, last_opened_at, is_running, pid, debug_port, forward_port, disable_extensions, debugger_mode, debug_port_config, workspace_id, launch_args
+                    created_at, updated_at, last_opened_at, is_running, pid, debug_port, forward_port, disable_extensions, debugger_mode, debug_port_config, workspace_id, launch_args, is_template, sort_order
              FROM profiles ORDER BY sort_order ASC, updated_at DESC"
         )?;
 
@@ -423,7 +530,7 @@ impl Database {
     pub fn get_profile_by_id(&self, id: &str) -> SqliteResult<Option<Profile>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, name, data_dir_path, chrome_path, homepage, icon_path, icon_base64, tags,
-                    created_at, updated_at, last_opened_at, is_running, pid, debug_port, forward_port, disable_extensions, debugger_mode, debug_port_config, workspace_id, launch_args
+                    created_at, updated_at, last_opened_at, is_running, pid, debug_port, forward_port, disable_extensions, debugger_mode, debug_port_config, workspace_id, launch_args, is_template, sort_order
              FROM profiles WHERE id = ?1"
         )?;
 
@@ -583,7 +690,7 @@ impl Database {
         let search_pattern = format!("%{}%", query);
         let mut stmt = self.conn.prepare(
             "SELECT id, name, data_dir_path, chrome_path, homepage, icon_path, icon_base64, tags,
-                    created_at, updated_at, last_opened_at, is_running, pid, debug_port, forward_port, disable_extensions, debugger_mode, debug_port_config, workspace_id, launch_args
+                    created_at, updated_at, last_opened_at, is_running, pid, debug_port, forward_port, disable_extensions, debugger_mode, debug_port_config, workspace_id, launch_args, is_template, sort_order
              FROM profiles
              WHERE name LIKE ?1 OR tags LIKE ?1
              ORDER BY updated_at DESC"
@@ -598,7 +705,7 @@ impl Database {
         let search_pattern = format!("%{}%", tag);
         let mut stmt = self.conn.prepare(
             "SELECT id, name, data_dir_path, chrome_path, homepage, icon_path, icon_base64, tags,
-                    created_at, updated_at, last_opened_at, is_running, pid, debug_port, forward_port, disable_extensions, debugger_mode, debug_port_config, workspace_id, launch_args
+                    created_at, updated_at, last_opened_at, is_running, pid, debug_port, forward_port, disable_extensions, debugger_mode, debug_port_config, workspace_id, launch_args, is_template, sort_order
              FROM profiles
              WHERE tags LIKE ?1
              ORDER BY updated_at DESC"
@@ -699,7 +806,7 @@ impl Database {
     pub fn get_profiles_by_workspace(&self, workspace_id: &str) -> SqliteResult<Vec<Profile>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, name, data_dir_path, chrome_path, homepage, icon_path, icon_base64, tags,
-                    created_at, updated_at, last_opened_at, is_running, pid, debug_port, forward_port, disable_extensions, debugger_mode, debug_port_config, workspace_id, launch_args
+                    created_at, updated_at, last_opened_at, is_running, pid, debug_port, forward_port, disable_extensions, debugger_mode, debug_port_config, workspace_id, launch_args, is_template, sort_order
              FROM profiles WHERE workspace_id = ?1 ORDER BY sort_order ASC, updated_at DESC"
         )?;
 
@@ -781,5 +888,92 @@ impl Database {
         })?;
 
         logs.collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 在临时目录建库并跑完迁移，尽量贴近真实环境
+    fn temp_db(tag: &str) -> (PathBuf, Database) {
+        let dir = std::env::temp_dir().join(format!("spaceshift-db-{}-{}", tag, std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let db = Database::new(&dir).unwrap();
+
+        (dir, db)
+    }
+
+    /// 重复导入同一个工作区不能插出两条
+    #[test]
+    fn ensure_workspace_is_idempotent() {
+        let (dir, db) = temp_db("ws");
+
+        let first = db
+            .ensure_workspace("ws-1", "日常", Some("📁"), Some("#409eff"), None)
+            .unwrap();
+        let second = db
+            .ensure_workspace("ws-1", "日常", Some("📁"), Some("#409eff"), None)
+            .unwrap();
+
+        assert_eq!(first, "ws-1");
+        assert_eq!(second, "ws-1");
+        assert_eq!(db.get_all_workspaces().unwrap().len(), 1);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 导入要连 id、排序、模板标记、启动参数一起原样写入并读回
+    #[test]
+    fn import_profile_keeps_every_field() {
+        let (dir, db) = temp_db("import");
+        db.ensure_workspace("ws-1", "日常", None, None, None).unwrap();
+
+        let args = LaunchArgs {
+            proxy: Some("http://127.0.0.1:7890".to_string()),
+            ..LaunchArgs::default()
+        };
+
+        db.import_profile(
+            "p-1",
+            "导入的配置",
+            "D:/SpaceShift/profiles/导入的配置",
+            Some("C:/chrome.exe"),
+            Some("https://example.com"),
+            Some("data:image/png;base64,AAA"),
+            Some("工作,测试"),
+            Some(9222),
+            true,
+            true,
+            Some(9333),
+            Some("ws-1"),
+            Some(&args),
+            true,
+            7,
+        )
+        .unwrap();
+
+        let p = db
+            .get_profile_by_id("p-1")
+            .unwrap()
+            .expect("导入的配置应该能读回来");
+
+        assert_eq!(p.name, "导入的配置");
+        assert_eq!(p.chrome_path.as_deref(), Some("C:/chrome.exe"));
+        assert_eq!(p.homepage.as_deref(), Some("https://example.com"));
+        assert_eq!(p.icon_base64.as_deref(), Some("data:image/png;base64,AAA"));
+        assert_eq!(p.tags.as_deref(), Some("工作,测试"));
+        assert_eq!(p.forward_port, Some(9222));
+        assert!(p.disable_extensions);
+        assert!(p.debugger_mode);
+        assert_eq!(p.debug_port_config, Some(9333));
+        assert_eq!(p.workspace_id.as_deref(), Some("ws-1"));
+        assert_eq!(p.launch_args.proxy.as_deref(), Some("http://127.0.0.1:7890"));
+        assert!(p.is_template);
+        assert_eq!(p.sort_order, Some(7));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -31,6 +31,16 @@ export interface Profile {
   launch_args: LaunchArgs;
 }
 
+/** 导入前读取到的备份包信息 */
+export interface BackupInspectInfo {
+  /** false 表示旧版备份包，里面没有软件配置 */
+  has_meta: boolean;
+  profile_name: string;
+  workspace_name: string | null;
+  exported_at: string | null;
+  is_template: boolean;
+}
+
 export interface PathsInfo {
   app_data_dir: string;
   profiles_dir: string;

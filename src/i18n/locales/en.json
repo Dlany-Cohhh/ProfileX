@@ -36,6 +36,10 @@
         "batchSelected": "{n} profiles selected",
         "selectAll": "Select All",
         "selectAllHint": "{n} profiles in total. Select to batch launch, move or clear cache.",
+        "import": "Import Backup",
+        "importConfirm": "Restore profile \"{name}\" (workspace: {workspace}) from this backup. Both app settings and browser data will be restored.",
+        "importConfirmLegacy": "\"{name}\" is an old backup without app settings. Only browser data will be restored and the name comes from the file name.",
+        "imported": "Imported profile \"{name}\"",
         "batchLaunching": "Batch launching {count} profiles...",
         "deleteConfirm": {
             "title": "Confirm Delete?",

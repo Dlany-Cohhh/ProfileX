@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { Profile, Backup, ChromeLaunchResult, BackupResult, RestoreResult, PerformanceRecord, Workspace, PathsInfo, LaunchArgs } from '../types';
+import type { Profile, Backup, ChromeLaunchResult, BackupResult, RestoreResult, PerformanceRecord, Workspace, PathsInfo, LaunchArgs, BackupInspectInfo } from '../types';
 
 export const api = {
   // Profile operations
@@ -142,6 +142,14 @@ export const api = {
 
   /** 手动记录当前窗口大小与位置 */
   saveWindowState: (): Promise<void> => invoke('save_window_state'),
+
+  /** 读入备份包元信息，用于导入前的确认 */
+  inspectBackup: (backupPath: string): Promise<BackupInspectInfo> =>
+    invoke('inspect_backup', { backupPath }),
+
+  /** 从备份包导入：按包里的软件配置还原配置记录，再解压浏览器数据 */
+  importProfileBackup: (backupPath: string, workspaceId?: string | null): Promise<Profile> =>
+    invoke('import_profile_backup', { backupPath, workspaceId }),
 
   /** 无边框窗口的操作：minimize / maximize / close / drag */
   windowAction: (action: 'minimize' | 'maximize' | 'close' | 'drag'): Promise<void> =>

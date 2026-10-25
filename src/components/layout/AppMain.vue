@@ -22,6 +22,10 @@
       <el-button v-if="!profileStore.searchQuery" type="primary" @click="$emit('create')">
         {{ $t('header.newProfile') }}
       </el-button>
+      <el-button v-if="!profileStore.searchQuery" plain @click="handleImport">
+        <el-icon><Upload /></el-icon>
+        {{ $t('main.import') }}
+      </el-button>
     </el-empty>
 
     <template v-else>
@@ -34,6 +38,10 @@
           {{ $t('main.selectAll') }}
         </el-checkbox>
         <span class="toolbar-hint">{{ $t('main.selectAllHint', { n: visibleIds.length }) }}</span>
+        <el-button class="toolbar-import" plain :loading="importing" @click="handleImport">
+          <el-icon><Upload /></el-icon>
+          {{ $t('main.import') }}
+        </el-button>
       </div>
 
       <div
@@ -124,7 +132,8 @@ import { useWorkspaceStore } from '../../store/workspace';
 import ProfileCard from '../ProfileCard.vue';
 import { api } from '../../api';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { VideoPlay, Brush, Folder } from '@element-plus/icons-vue';
+import { VideoPlay, Brush, Folder, Upload } from '@element-plus/icons-vue';
+import { open } from '@tauri-apps/plugin-dialog';
 import { formatSize } from '../../utils/format';
 import { PROFILE_REORDER_TYPE } from '../../utils/dnd';
 import { UNASSIGNED } from '../../store/workspace';
@@ -136,6 +145,55 @@ const workspaceStore = useWorkspaceStore();
 const { t } = useI18n();
 
 const clearingCache = ref(false);
+const importing = ref(false);
+
+/** 选择备份包 → 确认内容 → 导入成配置（软件设置与浏览器数据一起还原） */
+const handleImport = async () => {
+  const picked = await open({
+    multiple: false,
+    directory: false,
+    filters: [{ name: 'SpaceShift', extensions: ['zip'] }],
+  });
+
+  // 取消选择时 open 返回 null
+  if (!picked || Array.isArray(picked)) return;
+
+  const info = await api.inspectBackup(picked);
+
+  const message = info.has_meta
+    ? t('main.importConfirm', {
+        name: info.profile_name,
+        workspace: info.workspace_name || t('workspace.unassigned'),
+      })
+    : t('main.importConfirmLegacy', { name: info.profile_name });
+
+  try {
+    await ElMessageBox.confirm(message, t('main.import'), {
+      confirmButtonText: t('main.import'),
+      cancelButtonText: t('common.cancel'),
+      type: 'warning',
+    });
+  } catch {
+    return;
+  }
+
+  importing.value = true;
+
+  try {
+    // 传 null：让后端按备份包里记录的工作区还原，而不是塞进当前视图
+    const profile = await api.importProfileBackup(picked, null);
+
+    await profileStore.loadProfiles();
+    await workspaceStore.loadWorkspaces();
+
+    ElMessage.success(t('main.imported', { name: profile.name }));
+  } catch (error) {
+    ElMessage.error(typeof error === 'string' ? error : t('common.error'));
+    console.error(error);
+  } finally {
+    importing.value = false;
+  }
+};
 
 const visibleIds = computed(() => workspaceStore.visibleProfiles.map(p => p.id));
 
@@ -417,6 +475,10 @@ const handleDelete = async (profile: Profile) => {
 .toolbar-hint {
   font-size: var(--text-xs);
   color: var(--text-tertiary);
+}
+
+.toolbar-import {
+  margin-left: auto;
 }
 
 .profiles-container {

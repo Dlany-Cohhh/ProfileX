@@ -36,6 +36,10 @@
         "batchSelected": "已选择 {n} 个配置",
         "selectAll": "全选",
         "selectAllHint": "共 {n} 个配置，勾选后可批量启动、移动或清理缓存",
+        "import": "导入备份",
+        "importConfirm": "将按备份包还原配置「{name}」（工作区：{workspace}），软件设置与浏览器数据一并恢复。",
+        "importConfirmLegacy": "备份包「{name}」是旧版格式，不含软件配置，将只恢复浏览器数据，配置名按文件名生成。",
+        "imported": "已导入配置「{name}」",
         "batchLaunching": "正在批量启动 {count} 个配置...",
         "deleteConfirm": {
             "title": "确认删除?",

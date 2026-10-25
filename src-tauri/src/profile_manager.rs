@@ -4,7 +4,129 @@ use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 use zip::write::SimpleFileOptions;
 use zip::ZipWriter;
+use zip::ZipArchive;
 use serde::{Deserialize, Serialize};
+use chrono::Utc;
+use crate::db::{LaunchArgs, Profile, Workspace};
+
+/// 备份包内存放「软件配置」的目录。恢复浏览器数据时会被跳过，
+/// 免得把不属于浏览器的文件写进配置目录
+pub const BACKUP_META_FILE: &str = "_spaceshift/meta.json";
+
+pub const BACKUP_META_FORMAT: &str = "spaceshift-profile-backup";
+pub const BACKUP_META_VERSION: u32 = 1;
+
+/// 配置在软件里的设置：名字、图标、标签、端口、启动参数、模板标记等
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileMeta {
+    pub name: String,
+    pub chrome_path: Option<String>,
+    pub homepage: Option<String>,
+    pub icon_base64: Option<String>,
+    pub tags: Option<String>,
+    pub forward_port: Option<u16>,
+    pub disable_extensions: bool,
+    pub debugger_mode: bool,
+    pub debug_port_config: Option<u16>,
+    pub launch_args: Option<LaunchArgs>,
+    pub is_template: bool,
+    pub sort_order: Option<i64>,
+}
+
+/// 配置所属工作区，导入时按 id 还原，没有就按名字建一个
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct WorkspaceMeta {
+    pub id: String,
+    pub name: String,
+    pub icon: Option<String>,
+    pub color: Option<String>,
+    pub description: Option<String>,
+}
+
+/// 整包元信息，写在备份包根目录的 _spaceshift/meta.json
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupMeta {
+    pub format: String,
+    pub version: u32,
+    pub exported_at: String,
+    pub profile_id: String,
+    pub profile: ProfileMeta,
+    pub workspace: Option<WorkspaceMeta>,
+}
+
+/// 组装要写进备份包的软件配置
+pub fn build_backup_meta(profile: &Profile, workspace: Option<&Workspace>) -> BackupMeta {
+    BackupMeta {
+        format: BACKUP_META_FORMAT.to_string(),
+        version: BACKUP_META_VERSION,
+        exported_at: Utc::now().to_rfc3339(),
+        profile_id: profile.id.clone(),
+        profile: ProfileMeta {
+            name: profile.name.clone(),
+            chrome_path: profile.chrome_path.clone(),
+            homepage: profile.homepage.clone(),
+            icon_base64: profile.icon_base64.clone(),
+            tags: profile.tags.clone(),
+            forward_port: profile.forward_port,
+            disable_extensions: profile.disable_extensions,
+            debugger_mode: profile.debugger_mode,
+            debug_port_config: profile.debug_port_config,
+            launch_args: Some(profile.launch_args.clone()),
+            is_template: profile.is_template,
+            sort_order: profile.sort_order,
+        },
+        workspace: workspace.map(|ws| WorkspaceMeta {
+            id: ws.id.clone(),
+            name: ws.name.clone(),
+            icon: ws.icon.clone(),
+            color: ws.color.clone(),
+            description: ws.description.clone(),
+        }),
+    }
+}
+
+/// 读取备份包里的软件配置；老包没有这个文件就返回 None
+pub fn read_backup_meta(backup_path: &Path) -> Option<BackupMeta> {
+    let file = fs::File::open(backup_path).ok()?;
+    let mut archive = ZipArchive::new(file).ok()?;
+
+    let mut entry = archive.by_name(BACKUP_META_FILE).ok()?;
+    let text = io::read_to_string(&mut entry).ok()?;
+
+    let meta: BackupMeta = serde_json::from_str(&text).ok()?;
+
+    if meta.format != BACKUP_META_FORMAT {
+        return None;
+    }
+
+    Some(meta)
+}
+
+/// 从文件名推断配置名：去掉末尾的 _20261006_093844 时间戳
+pub fn profile_name_from_backup_path(path: &Path) -> String {
+    let stem = path
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "导入的配置".to_string());
+
+    // 名字_20261006_093844
+    let bytes: Vec<(usize, char)> = stem.char_indices().collect();
+    let Some((underscore, _)) = bytes.iter().rev().nth(15).copied() else {
+        return stem;
+    };
+
+    let tail = &stem[underscore + 1..];
+    let is_timestamp =
+        tail.len() == 15 && tail.chars().all(|c| c.is_ascii_digit() || c == '_');
+
+    if is_timestamp {
+        stem[..underscore].to_string()
+    } else {
+        stem
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BackupResult {
@@ -239,7 +361,8 @@ impl ProfileManager {
         Ok(new_path)
     }
 
-    pub fn backup_profile(profile_dir: &PathBuf, backup_dir: &PathBuf, profile_name: &str) -> BackupResult {
+    /// meta_json 为软件配置（profile + workspace）的 JSON，写进包里供导入时原样恢复
+    pub fn backup_profile(profile_dir: &PathBuf, backup_dir: &PathBuf, profile_name: &str, meta_json: Option<&str>) -> BackupResult {
         if !profile_dir.exists() {
             return BackupResult {
                 success: false,
@@ -283,6 +406,27 @@ impl ProfileManager {
             .compression_method(zip::CompressionMethod::Deflated)
             .compression_level(Some(1))
             .unix_permissions(0o755);
+
+        // 软件配置写在最前面，读包时一眼能看到这份备份属于谁
+        if let Some(json) = meta_json {
+            if zip.start_file(BACKUP_META_FILE, options).is_err() {
+                return BackupResult {
+                    success: false,
+                    backup_path: None,
+                    size_bytes: 0,
+                    error: Some("无法写入软件配置".to_string()),
+                };
+            }
+
+            if io::Write::write_all(&mut zip, json.as_bytes()).is_err() {
+                return BackupResult {
+                    success: false,
+                    backup_path: None,
+                    size_bytes: 0,
+                    error: Some("无法写入软件配置".to_string()),
+                };
+            }
+        }
 
         let mut total_size: i64 = 0;
 
@@ -413,6 +557,11 @@ impl ProfileManager {
                 }
             };
 
+            // 软件配置不属于浏览器数据，不解压进配置目录
+            if file.name().starts_with("_spaceshift/") {
+                continue;
+            }
+
             let outpath = target_dir.join(file.name());
 
             if file.name().ends_with('/') {
@@ -484,5 +633,113 @@ impl ProfileManager {
         }
 
         format!("{:.2} {}", size, UNITS[unit_index])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_profile(name: &str) -> Profile {
+        Profile {
+            id: "profile-1".to_string(),
+            name: name.to_string(),
+            data_dir_path: String::new(),
+            chrome_path: None,
+            homepage: Some("https://example.com".to_string()),
+            icon_path: None,
+            icon_base64: None,
+            tags: Some("工作,测试".to_string()),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            updated_at: "2026-01-01T00:00:00Z".to_string(),
+            last_opened_at: None,
+            is_running: false,
+            pid: None,
+            debug_port: None,
+            forward_port: Some(9222),
+            disable_extensions: true,
+            debugger_mode: true,
+            debug_port_config: Some(9333),
+            workspace_id: Some("ws-1".to_string()),
+            launch_args: LaunchArgs {
+                proxy: Some("http://127.0.0.1:7890".to_string()),
+                ..LaunchArgs::default()
+            },
+            is_template: true,
+            sort_order: Some(7),
+        }
+    }
+
+    fn sample_workspace() -> Workspace {
+        Workspace {
+            id: "ws-1".to_string(),
+            name: "日常".to_string(),
+            icon: Some("📁".to_string()),
+            color: Some("#409eff".to_string()),
+            description: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            updated_at: "2026-01-01T00:00:00Z".to_string(),
+        }
+    }
+
+    /// 备份包要带上软件配置，且这些配置不能被解压进浏览器数据目录
+    #[test]
+    fn backup_keeps_app_settings_and_restore_skips_them() {
+        let root = std::env::temp_dir().join(format!("spaceshift-meta-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+
+        let profile_dir = root.join("profile");
+        fs::create_dir_all(profile_dir.join("Default")).unwrap();
+        fs::write(profile_dir.join("Default").join("Preferences"), "{\"a\":1}").unwrap();
+
+        let backup_dir = root.join("backups");
+        let meta = build_backup_meta(&sample_profile("测试 配置"), Some(&sample_workspace()));
+        let json = serde_json::to_string(&meta).unwrap();
+
+        let result = ProfileManager::backup_profile(&profile_dir, &backup_dir, "测试 配置", Some(&json));
+        assert!(result.success, "{:?}", result.error);
+
+        let backup_path = PathBuf::from(result.backup_path.unwrap());
+
+        // 软件配置能原样读回来
+        let read = read_backup_meta(&backup_path).expect("备份包里应有软件配置");
+        assert_eq!(read.profile.name, "测试 配置");
+        assert_eq!(read.profile.tags.as_deref(), Some("工作,测试"));
+        assert_eq!(read.profile.forward_port, Some(9222));
+        assert!(read.profile.disable_extensions);
+        assert!(read.profile.is_template);
+        assert_eq!(read.profile.sort_order, Some(7));
+        assert_eq!(read.profile.launch_args.as_ref().unwrap().proxy.as_deref(), Some("http://127.0.0.1:7890"));
+        assert_eq!(read.workspace.as_ref().unwrap().name, "日常");
+        assert_eq!(read.profile_id, "profile-1");
+
+        // 浏览器数据恢复，配置目录不出现 _spaceshift
+        let restored = root.join("restored");
+        let restore = ProfileManager::restore_profile(&backup_path, &restored);
+        assert!(restore.success, "{:?}", restore.error);
+        assert!(restored.join("Default").join("Preferences").exists());
+        assert!(!restored.join("_spaceshift").exists());
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// 旧版备份包没有 meta：读出来是 None，配置名靠文件名推断
+    #[test]
+    fn legacy_backup_has_no_meta() {
+        let root = std::env::temp_dir().join(format!("spaceshift-legacy-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+
+        let profile_dir = root.join("profile");
+        fs::create_dir_all(&profile_dir).unwrap();
+        fs::write(profile_dir.join("data.txt"), "x").unwrap();
+
+        let backup_dir = root.join("backups");
+        let result = ProfileManager::backup_profile(&profile_dir, &backup_dir, "旧配置", None);
+        let backup_path = PathBuf::from(result.backup_path.unwrap());
+
+        assert!(read_backup_meta(&backup_path).is_none());
+        assert_eq!(profile_name_from_backup_path(&backup_path), "旧配置");
+
+        let _ = fs::remove_dir_all(&root);
     }
 }

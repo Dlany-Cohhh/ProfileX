@@ -14,7 +14,10 @@ mod cdp;
 
 use db::{Database, Profile, Backup, PerformanceRecord, Workspace, LaunchArgs};
 use chrome::{ChromeManager, ChromeLaunchResult};
-use profile_manager::{ProfileManager, BackupResult, RestoreResult};
+use profile_manager::{
+    ProfileManager, BackupResult, RestoreResult,
+    build_backup_meta, read_backup_meta, profile_name_from_backup_path,
+};
 use browser_monitor::BrowserMonitor;
 use error::{AppError, AppResult};
 use std::sync::Arc;
@@ -48,6 +51,17 @@ struct WindowState {
 
 fn backup_retention_of(app: &AppHandle) -> usize {
     load_config(app).backup_retention.unwrap_or(0)
+}
+
+/// 生成要写进备份包的软件配置：配置自身字段 + 所属工作区
+fn backup_meta_json(db: &Database, profile: &Profile) -> Option<String> {
+    let workspace = profile.workspace_id.as_deref().and_then(|ws_id| {
+        db.get_all_workspaces()
+            .ok()
+            .and_then(|list| list.into_iter().find(|w| w.id == ws_id))
+    });
+
+    serde_json::to_string(&build_backup_meta(profile, workspace.as_ref())).ok()
 }
 
 /// 删除备份文件。记录里的路径可能是搬迁前的旧位置，
@@ -533,18 +547,19 @@ async fn backup_profile(
     backup_dir: String,
     state: State<'_, AppState>,
 ) -> AppResult<BackupResult> {
-    let (profile_dir, profile_name) = {
+    let (profile_dir, profile_name, meta_json) = {
         let db = state.db.lock().map_err(|e| AppError::Other(e.to_string()))?;
         let profile = db.get_profile_by_id(&id)?
             .ok_or(AppError::ProfileNotFound)?;
-        (PathBuf::from(&profile.data_dir_path), profile.name.clone())
+        let meta = backup_meta_json(&db, &profile);
+        (PathBuf::from(&profile.data_dir_path), profile.name.clone(), meta)
     };
     
     let backup_path = PathBuf::from(&backup_dir);
     
     // Perform heavy backup operation in a blocking thread to keep the async executor free
     let result = tauri::async_runtime::spawn_blocking(move || {
-        ProfileManager::backup_profile(&profile_dir, &backup_path, &profile_name)
+        ProfileManager::backup_profile(&profile_dir, &backup_path, &profile_name, meta_json.as_deref())
     }).await.map_err(|e| AppError::Other(e.to_string()))?;
     
     if result.success {
@@ -556,6 +571,127 @@ async fn backup_profile(
     }
     
     Ok(result)
+}
+
+/// 导入前先看一眼备份包里有什么，用于确认弹窗
+#[derive(serde::Serialize)]
+struct BackupInspectInfo {
+    /// 是否带软件配置；false 说明是旧版备份包，只能恢复浏览器数据
+    has_meta: bool,
+    profile_name: String,
+    workspace_name: Option<String>,
+    exported_at: Option<String>,
+    is_template: bool,
+}
+
+#[tauri::command]
+fn inspect_backup(backup_path: String) -> AppResult<BackupInspectInfo> {
+    let path = PathBuf::from(&backup_path);
+    let meta = read_backup_meta(&path);
+
+    Ok(BackupInspectInfo {
+        has_meta: meta.is_some(),
+        profile_name: meta
+            .as_ref()
+            .map(|m| m.profile.name.clone())
+            .unwrap_or_else(|| profile_name_from_backup_path(&path)),
+        workspace_name: meta
+            .as_ref()
+            .and_then(|m| m.workspace.as_ref().map(|w| w.name.clone())),
+        exported_at: meta.as_ref().map(|m| m.exported_at.clone()),
+        is_template: meta.as_ref().map(|m| m.profile.is_template).unwrap_or(false),
+    })
+}
+
+/// 从备份包导入：先按包里的软件配置建好配置记录（名字、图标、标签、端口、
+/// 启动参数、工作区、模板标记），再把浏览器数据解压到对应目录
+#[tauri::command]
+async fn import_profile_backup(
+    app_handle: AppHandle,
+    backup_path: String,
+    workspace_id: Option<String>,
+    state: State<'_, AppState>,
+) -> AppResult<Profile> {
+    let path = PathBuf::from(&backup_path);
+
+    if !path.exists() {
+        return Err(AppError::Other("备份文件不存在".to_string()));
+    }
+
+    let meta = read_backup_meta(&path);
+
+    let name = meta
+        .as_ref()
+        .map(|m| m.profile.name.clone())
+        .unwrap_or_else(|| profile_name_from_backup_path(&path));
+
+    let profiles_dir = profiles_dir_of(&app_handle)?;
+    fs::create_dir_all(&profiles_dir)?;
+    let profile_dir = ProfileManager::create_profile_directory(&profiles_dir, &name)?;
+
+    // 数据库操作全部在同步块里完成，避免锁跨 await
+    let profile = {
+        let db = state.db.lock().map_err(|e| AppError::Other(e.to_string()))?;
+
+        let ws_id = match workspace_id.as_deref() {
+            Some(id) if !id.is_empty() => Some(id.to_string()),
+            _ => match meta.as_ref().and_then(|m| m.workspace.as_ref()) {
+                Some(ws) => Some(db.ensure_workspace(
+                    &ws.id,
+                    &ws.name,
+                    ws.icon.as_deref(),
+                    ws.color.as_deref(),
+                    ws.description.as_deref(),
+                )?),
+                None => None,
+            },
+        };
+
+        // 原 id 没被占用就复用，尽量做到「原样恢复」
+        let id = match meta.as_ref() {
+            Some(m) if db.get_profile_by_id(&m.profile_id)?.is_none() => m.profile_id.clone(),
+            _ => uuid::Uuid::new_v4().to_string(),
+        };
+
+        let sort_order = meta
+            .as_ref()
+            .and_then(|m| m.profile.sort_order)
+            .unwrap_or_else(|| db.min_sort_order().unwrap_or(0) - 1);
+
+        let meta_profile = meta.as_ref().map(|m| m.profile.clone());
+
+        db.import_profile(
+            &id,
+            &name,
+            &profile_dir.to_string_lossy(),
+            meta_profile.as_ref().and_then(|p| p.chrome_path.as_deref()),
+            meta_profile.as_ref().and_then(|p| p.homepage.as_deref()),
+            meta_profile.as_ref().and_then(|p| p.icon_base64.as_deref()),
+            meta_profile.as_ref().and_then(|p| p.tags.as_deref()),
+            meta_profile.as_ref().and_then(|p| p.forward_port),
+            meta_profile.as_ref().map(|p| p.disable_extensions).unwrap_or(false),
+            meta_profile.as_ref().map(|p| p.debugger_mode).unwrap_or(true),
+            meta_profile.as_ref().and_then(|p| p.debug_port_config),
+            ws_id.as_deref(),
+            meta_profile.as_ref().and_then(|p| p.launch_args.as_ref()),
+            meta_profile.as_ref().map(|p| p.is_template).unwrap_or(false),
+            sort_order,
+        )?
+    };
+
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        ProfileManager::restore_profile(&path, &profile_dir)
+    })
+    .await
+    .map_err(|e| AppError::Other(e.to_string()))?;
+
+    if !result.success {
+        return Err(AppError::Other(
+            result.error.unwrap_or_else(|| "解压备份失败".to_string()),
+        ));
+    }
+
+    Ok(profile)
 }
 
 #[tauri::command]
@@ -1132,8 +1268,17 @@ async fn run_backup(
                 },
             );
 
+            let meta = {
+                let guard = db.lock();
+                guard
+                    .as_ref()
+                    .ok()
+                    .map(|db| backup_meta_json(db, &profile))
+                    .unwrap_or(None)
+            };
+
             let profile_dir = PathBuf::from(&profile.data_dir_path);
-            let result = ProfileManager::backup_profile(&profile_dir, &backup_path, &profile.name);
+            let result = ProfileManager::backup_profile(&profile_dir, &backup_path, &profile.name, meta.as_deref());
 
             if result.success {
                 if let Some(path) = &result.backup_path {
@@ -1158,6 +1303,7 @@ async fn run_backup(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&app_data_dir)?;
@@ -1204,6 +1350,8 @@ pub fn run() {
             launch_chrome,
             backup_profile,
             restore_profile,
+            inspect_backup,
+            import_profile_backup,
             get_backups,
             delete_backup,
             search_profiles,
