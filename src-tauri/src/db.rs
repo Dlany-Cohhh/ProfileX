@@ -1,8 +1,81 @@
-use rusqlite::{Connection, Result as SqliteResult};
+use rusqlite::{Connection, Result as SqliteResult, Row};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use uuid::Uuid;
 use chrono::Utc;
+
+/// 浏览器启动参数，以 JSON 形式存在 profiles.launch_args 列
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct LaunchArgs {
+    pub proxy: Option<String>,
+    pub user_agent: Option<String>,
+    pub window_size: Option<String>,
+    pub window_position: Option<String>,
+    pub language: Option<String>,
+    pub extra_args: Option<String>,
+}
+
+impl LaunchArgs {
+    /// 转成 Chrome 命令行参数；空值不产生参数，额外参数按空白拆分
+    pub fn to_cli_args(&self) -> Vec<String> {
+        let mut args = Vec::new();
+
+        let mut push = |flag: &str, value: &Option<String>| {
+            if let Some(v) = value {
+                let v = v.trim();
+                if !v.is_empty() {
+                    args.push(format!("{}={}", flag, v));
+                }
+            }
+        };
+
+        push("--proxy-server", &self.proxy);
+        push("--user-agent", &self.user_agent);
+        push("--window-size", &self.window_size);
+        push("--window-position", &self.window_position);
+        push("--lang", &self.language);
+
+        if let Some(extra) = &self.extra_args {
+            for part in extra.split_whitespace() {
+                args.push(part.to_string());
+            }
+        }
+
+        args
+    }
+}
+
+/// 统一的列读取入口：按列名取值。
+/// 之前用 row.get(15) 这种下标，新增字段时一旦 INSERT 与 SELECT 的列序不一致就会静默读串。
+fn profile_from_row(row: &Row) -> SqliteResult<Profile> {
+    let launch_args_json: Option<String> = row.get("launch_args")?;
+
+    Ok(Profile {
+        id: row.get("id")?,
+        name: row.get("name")?,
+        data_dir_path: row.get("data_dir_path")?,
+        chrome_path: row.get("chrome_path")?,
+        homepage: row.get("homepage")?,
+        icon_path: row.get("icon_path")?,
+        icon_base64: row.get("icon_base64")?,
+        tags: row.get("tags")?,
+        created_at: row.get("created_at")?,
+        updated_at: row.get("updated_at")?,
+        last_opened_at: row.get("last_opened_at")?,
+        is_running: row.get::<_, i32>("is_running")? != 0,
+        pid: row.get("pid")?,
+        debug_port: row.get::<_, Option<i32>>("debug_port")?.map(|v| v as u16),
+        forward_port: row.get::<_, Option<i32>>("forward_port")?.map(|v| v as u16),
+        disable_extensions: row.get::<_, i32>("disable_extensions")? != 0,
+        debugger_mode: row.get::<_, i32>("debugger_mode")? != 0,
+        debug_port_config: row.get::<_, Option<i32>>("debug_port_config")?.map(|v| v as u16),
+        workspace_id: row.get("workspace_id")?,
+        launch_args: launch_args_json
+            .and_then(|json| serde_json::from_str::<LaunchArgs>(&json).ok())
+            .unwrap_or_default(),
+    })
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Profile {
@@ -24,6 +97,19 @@ pub struct Profile {
     pub disable_extensions: bool,
     pub debugger_mode: bool,
     pub debug_port_config: Option<u16>,
+    pub workspace_id: Option<String>,
+    pub launch_args: LaunchArgs,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Workspace {
+    pub id: String,
+    pub name: String,
+    pub icon: Option<String>,
+    pub color: Option<String>,
+    pub description: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -122,6 +208,19 @@ impl Database {
         )?;
 
         self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS workspaces (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                icon TEXT,
+                color TEXT,
+                description TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )",
+            [],
+        )?;
+
+        self.conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_profiles_tags ON profiles(tags)",
             [],
         )?;
@@ -135,18 +234,154 @@ impl Database {
         let _ = self.conn.execute("ALTER TABLE profiles ADD COLUMN disable_extensions INTEGER NOT NULL DEFAULT 1", []);
         let _ = self.conn.execute("ALTER TABLE profiles ADD COLUMN debugger_mode INTEGER NOT NULL DEFAULT 1", []);
         let _ = self.conn.execute("ALTER TABLE profiles ADD COLUMN debug_port_config INTEGER", []);
+        let _ = self.conn.execute("ALTER TABLE profiles ADD COLUMN workspace_id TEXT", []);
+        let _ = self.conn.execute("ALTER TABLE profiles ADD COLUMN sort_order INTEGER", []);
+        let _ = self
+            .conn
+            .execute("ALTER TABLE profiles ADD COLUMN is_template INTEGER NOT NULL DEFAULT 0", []);
+        let _ = self
+            .conn
+            .execute("ALTER TABLE profiles ADD COLUMN launch_args TEXT", []);
+
+        self.backfill_sort_order()?;
+
+        // 索引必须在列迁移之后创建，否则旧数据库上会因列不存在而失败
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_profiles_workspace ON profiles(workspace_id)",
+            [],
+        )?;
 
         Ok(())
     }
 
-    pub fn create_profile(&self, name: &str, data_dir_path: &str, chrome_path: Option<&str>, homepage: Option<&str>, icon_base64: Option<&str>, tags: Option<&str>, forward_port: Option<u16>, disable_extensions: bool, debugger_mode: bool, debug_port_config: Option<u16>) -> SqliteResult<Profile> {
+    /// 给尚无排序值的配置按当前展示顺序（updated_at DESC）补号，保证升级后界面顺序不变
+    fn backfill_sort_order(&self) -> SqliteResult<()> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id FROM profiles WHERE sort_order IS NULL ORDER BY updated_at DESC")?;
+
+        let ids: Vec<String> = stmt
+            .query_map([], |row| row.get(0))?
+            .collect::<SqliteResult<Vec<String>>>()?;
+        drop(stmt);
+
+        for (index, id) in ids.iter().enumerate() {
+            self.conn.execute(
+                "UPDATE profiles SET sort_order = ?1 WHERE id = ?2",
+                (index as i64, id),
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// 批量移动配置到同一工作区，一次调用完成，避免前端逐个往返
+    pub fn move_profiles_to_workspace(&self, ids: &[String], workspace_id: Option<&str>) -> SqliteResult<usize> {
+        let now = Utc::now().to_rfc3339();
+        let mut moved = 0usize;
+
+        for id in ids {
+            let changed = self.conn.execute(
+                "UPDATE profiles SET workspace_id = ?1, updated_at = ?2 WHERE id = ?3",
+                (workspace_id, &now, id),
+            )?;
+
+            moved += changed;
+        }
+
+        Ok(moved)
+    }
+
+    /// 备份保留策略：只保留每个配置最近的 keep 个备份，返回被删除的文件路径
+    /// keep = 0 表示不限制，不动任何文件
+    pub fn prune_backups(&self, profile_id: &str, keep: usize) -> SqliteResult<Vec<String>> {
+        if keep == 0 {
+            return Ok(Vec::new());
+        }
+
+        let mut stmt = self.conn.prepare(
+            "SELECT id, backup_path FROM backups WHERE profile_id = ?1
+             ORDER BY created_at DESC",
+        )?;
+
+        let rows: Vec<(String, String)> = stmt
+            .query_map([profile_id], |row| Ok((row.get("id")?, row.get("backup_path")?)))?
+            .collect::<SqliteResult<Vec<(String, String)>>>()?;
+        drop(stmt);
+
+        let mut removed = Vec::new();
+
+        for (index, (backup_id, path)) in rows.into_iter().enumerate() {
+            if index < keep {
+                continue;
+            }
+
+            self.conn.execute("DELETE FROM backups WHERE id = ?1", [&backup_id])?;
+            removed.push(path);
+        }
+
+        Ok(removed)
+    }
+
+    /// 标记 / 取消模板配置
+    pub fn set_profile_template(&self, profile_id: &str, is_template: bool) -> SqliteResult<bool> {
+        let affected = self.conn.execute(
+            "UPDATE profiles SET is_template = ?1, updated_at = ?2 WHERE id = ?3",
+            (
+                if is_template { 1 } else { 0 },
+                Utc::now().to_rfc3339(),
+                profile_id,
+            ),
+        )?;
+
+        Ok(affected > 0)
+    }
+
+    /// 所有被标记为模板的配置 id
+    pub fn get_template_ids(&self) -> SqliteResult<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id FROM profiles WHERE is_template = 1 ORDER BY sort_order ASC, updated_at DESC",
+        )?;
+
+        let ids = stmt
+            .query_map([], |row| row.get(0))?
+            .collect::<SqliteResult<Vec<String>>>()?;
+
+        Ok(ids)
+    }
+
+    /// 整体重写排序：数组下标即新的 sort_order
+    pub fn reorder_profiles(&self, ids: &[String]) -> SqliteResult<()> {
+        for (index, id) in ids.iter().enumerate() {
+            self.conn.execute(
+                "UPDATE profiles SET sort_order = ?1 WHERE id = ?2",
+                (index as i64, id),
+            )?;
+        }
+
+        Ok(())
+    }
+
+    pub fn create_profile(&self, name: &str, data_dir_path: &str, chrome_path: Option<&str>, homepage: Option<&str>, icon_base64: Option<&str>, tags: Option<&str>, forward_port: Option<u16>, disable_extensions: bool, debugger_mode: bool, debug_port_config: Option<u16>, workspace_id: Option<&str>, launch_args: Option<&LaunchArgs>) -> SqliteResult<Profile> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
 
+        // 新配置排到最前（最小 sort_order - 1），与原先「最近更新的在前」观感一致
+        let min_order: Option<i64> = self
+            .conn
+            .query_row("SELECT MIN(sort_order) FROM profiles", [], |row| row.get(0))
+            .unwrap_or(None);
+
+        let sort_order = min_order.unwrap_or(0) - 1;
+
+        // 启动参数整存 JSON，避免每加一个开关都要加列、改 INSERT 与所有 SELECT
+        let launch_args_json = launch_args
+            .and_then(|args| serde_json::to_string(args).ok());
+
         self.conn.execute(
-            "INSERT INTO profiles (id, name, data_dir_path, chrome_path, homepage, icon_base64, tags, forward_port, disable_extensions, debugger_mode, debug_port_config, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-            (&id, name, data_dir_path, chrome_path, homepage, icon_base64, tags, forward_port.map(|v| v as i32), if disable_extensions { 1 } else { 0 }, if debugger_mode { 1 } else { 0 }, debug_port_config.map(|v| v as i32), &now, &now),
+            "INSERT INTO profiles (id, name, data_dir_path, chrome_path, homepage, icon_base64, tags, forward_port, disable_extensions, debugger_mode, debug_port_config, workspace_id, sort_order, launch_args, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+            (&id, name, data_dir_path, chrome_path, homepage, icon_base64, tags, forward_port.map(|v| v as i32), if disable_extensions { 1 } else { 0 }, if debugger_mode { 1 } else { 0 }, debug_port_config.map(|v| v as i32), workspace_id, sort_order, &launch_args_json, &now, &now),
         )?;
 
         Ok(Profile {
@@ -168,38 +403,19 @@ impl Database {
             disable_extensions,
             debugger_mode,
             debug_port_config,
+            workspace_id: workspace_id.map(|s| s.to_string()),
+            launch_args: launch_args.cloned().unwrap_or_default(),
         })
     }
 
     pub fn get_all_profiles(&self) -> SqliteResult<Vec<Profile>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, name, data_dir_path, chrome_path, homepage, icon_path, icon_base64, tags,
-                    created_at, updated_at, last_opened_at, is_running, pid, debug_port, forward_port, disable_extensions, debugger_mode, debug_port_config
-             FROM profiles ORDER BY updated_at DESC"
+                    created_at, updated_at, last_opened_at, is_running, pid, debug_port, forward_port, disable_extensions, debugger_mode, debug_port_config, workspace_id, launch_args
+             FROM profiles ORDER BY sort_order ASC, updated_at DESC"
         )?;
 
-        let profiles = stmt.query_map([], |row| {
-            Ok(Profile {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                data_dir_path: row.get(2)?,
-                chrome_path: row.get(3)?,
-                homepage: row.get(4)?,
-                icon_path: row.get(5)?,
-                icon_base64: row.get(6)?,
-                tags: row.get(7)?,
-                created_at: row.get(8)?,
-                updated_at: row.get(9)?,
-                last_opened_at: row.get(10)?,
-                is_running: row.get::<_, i32>(11)? != 0,
-                pid: row.get(12)?,
-                debug_port: row.get::<_, Option<i32>>(13)?.map(|v| v as u16),
-                forward_port: row.get::<_, Option<i32>>(14)?.map(|v| v as u16),
-                disable_extensions: row.get::<_, i32>(15)? != 0,
-                debugger_mode: row.get::<_, i32>(16)? != 0,
-                debug_port_config: row.get::<_, Option<i32>>(17)?.map(|v| v as u16),
-            })
-        })?;
+        let profiles = stmt.query_map([], profile_from_row)?;
 
         profiles.collect()
     }
@@ -207,37 +423,16 @@ impl Database {
     pub fn get_profile_by_id(&self, id: &str) -> SqliteResult<Option<Profile>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, name, data_dir_path, chrome_path, homepage, icon_path, icon_base64, tags,
-                    created_at, updated_at, last_opened_at, is_running, pid, debug_port, forward_port, disable_extensions, debugger_mode, debug_port_config
+                    created_at, updated_at, last_opened_at, is_running, pid, debug_port, forward_port, disable_extensions, debugger_mode, debug_port_config, workspace_id, launch_args
              FROM profiles WHERE id = ?1"
         )?;
 
-        let mut rows = stmt.query_map([id], |row| {
-            Ok(Profile {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                data_dir_path: row.get(2)?,
-                chrome_path: row.get(3)?,
-                homepage: row.get(4)?,
-                icon_path: row.get(5)?,
-                icon_base64: row.get(6)?,
-                tags: row.get(7)?,
-                created_at: row.get(8)?,
-                updated_at: row.get(9)?,
-                last_opened_at: row.get(10)?,
-                is_running: row.get::<_, i32>(11)? != 0,
-                pid: row.get(12)?,
-                debug_port: row.get::<_, Option<i32>>(13)?.map(|v| v as u16),
-                forward_port: row.get::<_, Option<i32>>(14)?.map(|v| v as u16),
-                disable_extensions: row.get::<_, i32>(15)? != 0,
-                debugger_mode: row.get::<_, i32>(16)? != 0,
-                debug_port_config: row.get::<_, Option<i32>>(17)?.map(|v| v as u16),
-            })
-        })?;
+        let mut rows = stmt.query_map([id], profile_from_row)?;
 
         rows.next().transpose()
     }
 
-    pub fn update_profile(&self, id: &str, name: Option<&str>, chrome_path: Option<&str>, homepage: Option<&str>, icon_base64: Option<&str>, tags: Option<&str>, forward_port: Option<u16>, disable_extensions: Option<bool>, debugger_mode: Option<bool>, debug_port_config: Option<u16>) -> SqliteResult<bool> {
+    pub fn update_profile(&self, id: &str, name: Option<&str>, chrome_path: Option<&str>, homepage: Option<&str>, icon_base64: Option<&str>, tags: Option<&str>, forward_port: Option<u16>, disable_extensions: Option<bool>, debugger_mode: Option<bool>, debug_port_config: Option<u16>, launch_args: Option<&LaunchArgs>) -> SqliteResult<bool> {
         let now = Utc::now().to_rfc3339();
 
         if let Some(name) = name {
@@ -294,6 +489,14 @@ impl Database {
             (forward_port.map(|v| v as i32), debug_port_config.map(|v| v as i32), &now, id),
         )?;
 
+        if let Some(args) = launch_args {
+            let json = serde_json::to_string(args).ok();
+            self.conn.execute(
+                "UPDATE profiles SET launch_args = ?1, updated_at = ?2 WHERE id = ?3",
+                (&json, &now, id),
+            )?;
+        }
+
         Ok(self.conn.changes() > 0)
     }
 
@@ -341,11 +544,11 @@ impl Database {
 
         let backups = stmt.query_map([profile_id], |row| {
             Ok(Backup {
-                id: row.get(0)?,
-                profile_id: row.get(1)?,
-                backup_path: row.get(2)?,
-                created_at: row.get(3)?,
-                size_bytes: row.get(4)?,
+                id: row.get("id")?,
+                profile_id: row.get("profile_id")?,
+                backup_path: row.get("backup_path")?,
+                created_at: row.get("created_at")?,
+                size_bytes: row.get("size_bytes")?,
             })
         })?;
 
@@ -360,11 +563,11 @@ impl Database {
 
         let mut rows = stmt.query_map([id], |row| {
             Ok(Backup {
-                id: row.get(0)?,
-                profile_id: row.get(1)?,
-                backup_path: row.get(2)?,
-                created_at: row.get(3)?,
-                size_bytes: row.get(4)?,
+                id: row.get("id")?,
+                profile_id: row.get("profile_id")?,
+                backup_path: row.get("backup_path")?,
+                created_at: row.get("created_at")?,
+                size_bytes: row.get("size_bytes")?,
             })
         })?;
 
@@ -380,34 +583,13 @@ impl Database {
         let search_pattern = format!("%{}%", query);
         let mut stmt = self.conn.prepare(
             "SELECT id, name, data_dir_path, chrome_path, homepage, icon_path, icon_base64, tags,
-                    created_at, updated_at, last_opened_at, is_running, pid, debug_port, forward_port, disable_extensions, debugger_mode, debug_port_config
+                    created_at, updated_at, last_opened_at, is_running, pid, debug_port, forward_port, disable_extensions, debugger_mode, debug_port_config, workspace_id, launch_args
              FROM profiles
              WHERE name LIKE ?1 OR tags LIKE ?1
              ORDER BY updated_at DESC"
         )?;
 
-        let profiles = stmt.query_map([&search_pattern], |row| {
-            Ok(Profile {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                data_dir_path: row.get(2)?,
-                chrome_path: row.get(3)?,
-                homepage: row.get(4)?,
-                icon_path: row.get(5)?,
-                icon_base64: row.get(6)?,
-                tags: row.get(7)?,
-                created_at: row.get(8)?,
-                updated_at: row.get(9)?,
-                last_opened_at: row.get(10)?,
-                is_running: row.get::<_, i32>(11)? != 0,
-                pid: row.get(12)?,
-                debug_port: row.get::<_, Option<i32>>(13)?.map(|v| v as u16),
-                forward_port: row.get::<_, Option<i32>>(14)?.map(|v| v as u16),
-                disable_extensions: row.get::<_, i32>(15)? != 0,
-                debugger_mode: row.get::<_, i32>(16)? != 0,
-                debug_port_config: row.get::<_, Option<i32>>(17)?.map(|v| v as u16),
-            })
-        })?;
+        let profiles = stmt.query_map([&search_pattern], profile_from_row)?;
 
         profiles.collect()
     }
@@ -416,36 +598,147 @@ impl Database {
         let search_pattern = format!("%{}%", tag);
         let mut stmt = self.conn.prepare(
             "SELECT id, name, data_dir_path, chrome_path, homepage, icon_path, icon_base64, tags,
-                    created_at, updated_at, last_opened_at, is_running, pid, debug_port, forward_port, disable_extensions, debugger_mode, debug_port_config
+                    created_at, updated_at, last_opened_at, is_running, pid, debug_port, forward_port, disable_extensions, debugger_mode, debug_port_config, workspace_id, launch_args
              FROM profiles
              WHERE tags LIKE ?1
              ORDER BY updated_at DESC"
         )?;
 
-        let profiles = stmt.query_map([&search_pattern], |row| {
-            Ok(Profile {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                data_dir_path: row.get(2)?,
-                chrome_path: row.get(3)?,
-                homepage: row.get(4)?,
-                icon_path: row.get(5)?,
-                icon_base64: row.get(6)?,
-                tags: row.get(7)?,
-                created_at: row.get(8)?,
-                updated_at: row.get(9)?,
-                last_opened_at: row.get(10)?,
-                is_running: row.get::<_, i32>(11)? != 0,
-                pid: row.get(12)?,
-                debug_port: row.get::<_, Option<i32>>(13)?.map(|v| v as u16),
-                forward_port: row.get::<_, Option<i32>>(14)?.map(|v| v as u16),
-                disable_extensions: row.get::<_, i32>(15)? != 0,
-                debugger_mode: row.get::<_, i32>(16)? != 0,
-                debug_port_config: row.get::<_, Option<i32>>(17)?.map(|v| v as u16),
+        let profiles = stmt.query_map([&search_pattern], profile_from_row)?;
+
+        profiles.collect()
+    }
+
+    pub fn get_all_workspaces(&self) -> SqliteResult<Vec<Workspace>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, name, icon, color, description, created_at, updated_at
+             FROM workspaces ORDER BY created_at ASC"
+        )?;
+
+        let workspaces = stmt.query_map([], |row| {
+            Ok(Workspace {
+                id: row.get("id")?,
+                name: row.get("name")?,
+                icon: row.get("icon")?,
+                color: row.get("color")?,
+                description: row.get("description")?,
+                created_at: row.get("created_at")?,
+                updated_at: row.get("updated_at")?,
             })
         })?;
 
+        workspaces.collect()
+    }
+
+    pub fn create_workspace(&self, name: &str, icon: Option<&str>, color: Option<&str>, description: Option<&str>) -> SqliteResult<Workspace> {
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().to_rfc3339();
+
+        self.conn.execute(
+            "INSERT INTO workspaces (id, name, icon, color, description, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            (&id, name, icon, color, description, &now, &now),
+        )?;
+
+        Ok(Workspace {
+            id,
+            name: name.to_string(),
+            icon: icon.map(|s| s.to_string()),
+            color: color.map(|s| s.to_string()),
+            description: description.map(|s| s.to_string()),
+            created_at: now.clone(),
+            updated_at: now,
+        })
+    }
+
+    pub fn update_workspace(&self, id: &str, name: Option<&str>, icon: Option<&str>, color: Option<&str>, description: Option<&str>) -> SqliteResult<bool> {
+        let now = Utc::now().to_rfc3339();
+
+        if let Some(name) = name {
+            self.conn.execute(
+                "UPDATE workspaces SET name = ?1, updated_at = ?2 WHERE id = ?3",
+                (name, &now, id),
+            )?;
+        }
+
+        if let Some(icon) = icon {
+            self.conn.execute(
+                "UPDATE workspaces SET icon = ?1, updated_at = ?2 WHERE id = ?3",
+                (icon, &now, id),
+            )?;
+        }
+
+        if let Some(color) = color {
+            self.conn.execute(
+                "UPDATE workspaces SET color = ?1, updated_at = ?2 WHERE id = ?3",
+                (color, &now, id),
+            )?;
+        }
+
+        if let Some(description) = description {
+            self.conn.execute(
+                "UPDATE workspaces SET description = ?1, updated_at = ?2 WHERE id = ?3",
+                (description, &now, id),
+            )?;
+        }
+
+        Ok(self.conn.changes() > 0)
+    }
+
+    pub fn delete_workspace(&self, id: &str) -> SqliteResult<bool> {
+        // 删除工作区时，其下的 profile 回到「未分组」
+        self.conn.execute(
+            "UPDATE profiles SET workspace_id = NULL WHERE workspace_id = ?1",
+            [id],
+        )?;
+
+        self.conn.execute("DELETE FROM workspaces WHERE id = ?1", [id])?;
+        Ok(self.conn.changes() > 0)
+    }
+
+    pub fn get_profiles_by_workspace(&self, workspace_id: &str) -> SqliteResult<Vec<Profile>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, name, data_dir_path, chrome_path, homepage, icon_path, icon_base64, tags,
+                    created_at, updated_at, last_opened_at, is_running, pid, debug_port, forward_port, disable_extensions, debugger_mode, debug_port_config, workspace_id, launch_args
+             FROM profiles WHERE workspace_id = ?1 ORDER BY sort_order ASC, updated_at DESC"
+        )?;
+
+        let profiles = stmt.query_map([workspace_id], profile_from_row)?;
+
         profiles.collect()
+    }
+
+    /// 数据目录搬迁后，把 profiles.data_dir_path 里的旧前缀替换为新前缀
+    pub fn rewrite_data_dir_prefix(&self, old_prefix: &str, new_prefix: &str) -> SqliteResult<usize> {
+        let mut stmt = self.conn.prepare("SELECT id, data_dir_path FROM profiles")?;
+        let rows: Vec<(String, String)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<SqliteResult<Vec<(String, String)>>>()?;
+        drop(stmt);
+
+        let mut updated = 0usize;
+
+        for (id, path) in rows {
+            if let Some(rest) = path.strip_prefix(old_prefix) {
+                let new_path = format!("{}{}", new_prefix, rest);
+                self.conn
+                    .execute("UPDATE profiles SET data_dir_path = ?1 WHERE id = ?2", (&new_path, &id))?;
+                updated += 1;
+            }
+        }
+
+        Ok(updated)
+    }
+
+    pub fn set_profile_workspace(&self, profile_id: &str, workspace_id: Option<&str>) -> SqliteResult<bool> {
+        let now = Utc::now().to_rfc3339();
+
+        self.conn.execute(
+            "UPDATE profiles SET workspace_id = ?1, updated_at = ?2 WHERE id = ?3",
+            (workspace_id, &now, profile_id),
+        )?;
+
+        Ok(self.conn.changes() > 0)
     }
 
     pub fn save_performance_record(&self, record: &PerformanceRecord) -> SqliteResult<()> {
@@ -475,15 +768,15 @@ impl Database {
 
         let logs = stmt.query_map([profile_id, &limit.to_string()], |row| {
             Ok(PerformanceRecord {
-                id: row.get(0)?,
-                profile_id: row.get(1)?,
-                launch_duration_ms: row.get::<_, i64>(2)? as u64,
-                spawn_duration_ms: row.get::<_, i64>(3)? as u64,
-                dns_duration_ms: row.get::<_, Option<i64>>(4)?.map(|v| v as u64),
-                tcp_duration_ms: row.get::<_, Option<i64>>(5)?.map(|v| v as u64),
-                dom_ready_ms: row.get::<_, Option<i64>>(6)?.map(|v| v as u64),
-                page_load_ms: row.get::<_, Option<i64>>(7)?.map(|v| v as u64),
-                created_at: row.get(8)?,
+                id: row.get("id")?,
+                profile_id: row.get("profile_id")?,
+                launch_duration_ms: row.get::<_, i64>("launch_duration_ms")? as u64,
+                spawn_duration_ms: row.get::<_, i64>("spawn_duration_ms")? as u64,
+                dns_duration_ms: row.get::<_, Option<i64>>("dns_duration_ms")?.map(|v| v as u64),
+                tcp_duration_ms: row.get::<_, Option<i64>>("tcp_duration_ms")?.map(|v| v as u64),
+                dom_ready_ms: row.get::<_, Option<i64>>("dom_ready_ms")?.map(|v| v as u64),
+                page_load_ms: row.get::<_, Option<i64>>("page_load_ms")?.map(|v| v as u64),
+                created_at: row.get("created_at")?,
             })
         })?;
 

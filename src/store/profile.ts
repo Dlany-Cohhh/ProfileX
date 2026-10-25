@@ -13,6 +13,30 @@ export const useProfileStore = defineStore('profile', () => {
     const viewMode = ref<ViewMode>('grid');
     const launchingProfiles = ref<Set<string>>(new Set());
     const selectedIds = ref<Set<string>>(new Set());
+    /** profile id -> 磁盘占用字节数 */
+    const sizes = ref<Record<string, number>>({});
+    const loadingSizes = ref(false);
+    /** 被标记为模板的配置 id，新建配置时可套用 */
+    const templateIds = ref<string[]>([]);
+
+    /** 模板配置列表（按当前排序） */
+    const templateProfiles = computed(() =>
+        profiles.value.filter(p => templateIds.value.includes(p.id))
+    );
+
+    const loadTemplates = async () => {
+        try {
+            templateIds.value = await api.getTemplateIds();
+        } catch (error) {
+            console.error(error);
+        }
+    };
+
+    const toggleTemplate = async (id: string) => {
+        const next = !templateIds.value.includes(id);
+        await api.setProfileTemplate(id, next);
+        await loadTemplates();
+    };
 
     const filteredProfiles = computed(() => {
         if (!searchQuery.value) return profiles.value;
@@ -47,6 +71,26 @@ export const useProfileStore = defineStore('profile', () => {
         }
     };
 
+    /** 统计所有配置的磁盘占用。文件多，放后台算，不阻塞界面 */
+    const loadSizes = async () => {
+        if (loadingSizes.value) return;
+        loadingSizes.value = true;
+        try {
+            const entries = await api.getProfileSizes();
+            const map: Record<string, number> = {};
+            entries.forEach(([id, bytes]) => {
+                map[id] = bytes;
+            });
+            sizes.value = map;
+        } catch (error) {
+            console.error(error);
+        } finally {
+            loadingSizes.value = false;
+        }
+    };
+
+    const sizeOf = (id: string) => sizes.value[id];
+
     const handleLaunch = async (profile: Profile) => {
         if (launchingProfiles.value.has(profile.id)) return;
 
@@ -78,6 +122,12 @@ export const useProfileStore = defineStore('profile', () => {
 
     const clearSelection = () => {
         selectedIds.value.clear();
+    };
+
+    /** 全选/取消全选当前可见的配置 */
+    const toggleSelectAll = (ids: string[]) => {
+        const allSelected = ids.length > 0 && ids.every(id => selectedIds.value.has(id));
+        selectedIds.value = allSelected ? new Set<string>() : new Set(ids);
     };
 
     const handleBatchLaunch = async () => {
@@ -114,12 +164,21 @@ export const useProfileStore = defineStore('profile', () => {
         viewMode,
         launchingProfiles,
         selectedIds,
+        sizes,
+        loadingSizes,
+        templateIds,
+        templateProfiles,
         filteredProfiles,
         existingTags,
         loadProfiles,
+        loadTemplates,
+        toggleTemplate,
+        loadSizes,
+        sizeOf,
         handleLaunch,
         toggleSelection,
         clearSelection,
+        toggleSelectAll,
         handleBatchLaunch,
         initStatusListener,
     };

@@ -1,3 +1,13 @@
+/** 浏览器启动参数，透传给 Chrome 命令行 */
+export interface LaunchArgs {
+  proxy?: string;
+  userAgent?: string;
+  windowSize?: string;
+  windowPosition?: string;
+  language?: string;
+  extraArgs?: string;
+}
+
 export interface Profile {
   id: string;
   name: string;
@@ -17,6 +27,27 @@ export interface Profile {
   disable_extensions: boolean;
   debugger_mode: boolean;
   debug_port_config?: number;
+  workspace_id?: string | null;
+  launch_args: LaunchArgs;
+}
+
+export interface PathsInfo {
+  app_data_dir: string;
+  profiles_dir: string;
+  backup_dir: string;
+  using_custom_data_dir: boolean;
+  using_custom_backup_dir: boolean;
+  backup_retention: number;
+}
+
+export interface Workspace {
+  id: string;
+  name: string;
+  icon?: string | null;
+  color?: string | null;
+  description?: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Backup {

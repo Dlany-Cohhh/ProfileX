@@ -25,23 +25,41 @@
 
       <div class="form-row">
         <el-form-item :label="$t('profile.form.chromePath')" prop="chrome_path" class="flex-1">
-          <el-input
+          <el-select
             v-model="form.chrome_path"
-            :placeholder="$t('profile.form.chromePathPlaceholder')"
+            filterable
+            allow-create
             clearable
-          />
+            default-first-option
+            :placeholder="$t('profile.form.chromePathPlaceholder')"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="path in chromePathOptions"
+              :key="path"
+              :label="path"
+              :value="path"
+            />
+          </el-select>
         </el-form-item>
 
         <el-form-item :label="$t('profile.form.homepage')" prop="homepage" class="flex-1">
-          <el-input
+          <el-select
             v-model="form.homepage"
-            :placeholder="$t('profile.form.homepagePlaceholder')"
+            filterable
+            allow-create
             clearable
+            default-first-option
+            :placeholder="$t('profile.form.homepagePlaceholder')"
+            style="width: 100%"
           >
-            <template #prefix>
-              <el-icon><Monitor /></el-icon>
-            </template>
-          </el-input>
+            <el-option
+              v-for="url in homepageOptions"
+              :key="url"
+              :label="url"
+              :value="url"
+            />
+          </el-select>
         </el-form-item>
       </div>
 
@@ -122,6 +140,118 @@
           </el-select>
         </el-form-item>
       </div>
+
+      <el-form-item v-if="!isEdit && templateProfiles.length > 0" :label="$t('profile.form.template')">
+        <el-select
+          v-model="form.template_id"
+          clearable
+          style="width: 100%"
+          :placeholder="$t('profile.form.templatePlaceholder')"
+          @change="handleTemplateChange"
+        >
+          <el-option
+            v-for="tp in templateProfiles"
+            :key="tp.id"
+            :label="tp.name"
+            :value="tp.id"
+          />
+        </el-select>
+        <div class="form-tip">{{ $t('profile.form.templateTip') }}</div>
+      </el-form-item>
+
+      <el-form-item v-if="!isEdit && form.template_id" :label="$t('profile.form.templateMode')">
+        <el-radio-group v-model="form.template_mode">
+          <el-radio value="extensions">{{ $t('profile.form.templateModeExtensions') }}</el-radio>
+          <el-radio value="full">{{ $t('profile.form.templateModeFull') }}</el-radio>
+        </el-radio-group>
+        <div class="form-tip">
+          {{
+            form.template_mode === 'full'
+              ? $t('profile.form.templateModeFullTip')
+              : $t('profile.form.templateModeExtensionsTip')
+          }}
+        </div>
+      </el-form-item>
+
+      <el-form-item class="toggle-item">
+        <div class="toggle-row">
+          <el-switch v-model="showLaunchArgs" />
+          <span>{{ $t('profile.form.launchArgs') }}</span>
+        </div>
+        <div class="form-tip">{{ $t('profile.form.launchArgsTip') }}</div>
+      </el-form-item>
+
+      <template v-if="showLaunchArgs">
+        <div class="form-row">
+          <el-form-item :label="$t('profile.form.proxy')" class="flex-1">
+            <el-input
+              v-model="form.launch_args.proxy"
+              :placeholder="$t('profile.form.proxyPlaceholder')"
+              clearable
+            />
+          </el-form-item>
+
+          <el-form-item :label="$t('profile.form.language')" class="flex-1">
+            <el-input
+              v-model="form.launch_args.language"
+              :placeholder="$t('profile.form.languagePlaceholder')"
+              clearable
+            />
+          </el-form-item>
+        </div>
+
+        <div class="form-row">
+          <el-form-item :label="$t('profile.form.windowSize')" class="flex-1">
+            <el-input
+              v-model="form.launch_args.windowSize"
+              :placeholder="$t('profile.form.windowSizePlaceholder')"
+              clearable
+            />
+          </el-form-item>
+
+          <el-form-item :label="$t('profile.form.windowPosition')" class="flex-1">
+            <el-input
+              v-model="form.launch_args.windowPosition"
+              :placeholder="$t('profile.form.windowPositionPlaceholder')"
+              clearable
+            />
+          </el-form-item>
+        </div>
+
+        <el-form-item :label="$t('profile.form.userAgent')">
+          <el-input
+            v-model="form.launch_args.userAgent"
+            :placeholder="$t('profile.form.userAgentPlaceholder')"
+            clearable
+          />
+        </el-form-item>
+
+        <el-form-item :label="$t('profile.form.extraArgs')">
+          <el-input
+            v-model="form.launch_args.extraArgs"
+            :placeholder="$t('profile.form.extraArgsPlaceholder')"
+            clearable
+          />
+          <div class="form-tip">{{ $t('profile.form.extraArgsTip') }}</div>
+        </el-form-item>
+      </template>
+
+      <el-form-item :label="$t('profile.form.workspace')">
+        <el-select
+          v-model="form.workspace_id"
+          :placeholder="$t('profile.form.workspacePlaceholder')"
+          clearable
+          style="width: 100%"
+        >
+          <el-option v-for="ws in workspaceStore.workspaces" :key="ws.id" :label="ws.name" :value="ws.id">
+            <span class="ws-option">
+              <span class="ws-dot" :style="{ background: ws.color || '#909399' }" />
+              <span>{{ ws.icon || '📁' }}</span>
+              <span>{{ ws.name }}</span>
+            </span>
+          </el-option>
+        </el-select>
+      </el-form-item>
     </el-form>
 
     <template #footer>
@@ -137,15 +267,66 @@
 import { ref, computed, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { ElMessage } from 'element-plus';
-import { UserFilled, Camera, Monitor } from '@element-plus/icons-vue';
-import type { Profile } from '../types';
+import { UserFilled, Camera } from '@element-plus/icons-vue';
+import type { Profile, LaunchArgs } from '../types';
 import { api } from '../api';
+import { useWorkspaceStore } from '../store/workspace';
+import { useProfileStore } from '../store/profile';
+
+const emptyLaunchArgs = (): LaunchArgs => ({
+  proxy: '',
+  userAgent: '',
+  windowSize: '',
+  windowPosition: '',
+  language: '',
+  extraArgs: ''
+});
+
+/** 后端可能返回缺字段的对象，补成空串避免 el-input 收到 undefined */
+const mergeLaunchArgs = (args?: LaunchArgs | null): LaunchArgs => {
+  const merged = emptyLaunchArgs();
+  if (!args) return merged;
+
+  (Object.keys(merged) as (keyof LaunchArgs)[]).forEach(key => {
+    merged[key] = args[key] ?? '';
+  });
+
+  return merged;
+};
 
 const props = defineProps<{
   modelValue: boolean;
   profile?: Profile | null;
   existingTags: string[];
+  defaultWorkspaceId?: string | null;
 }>();
+
+const workspaceStore = useWorkspaceStore();
+const profileStore = useProfileStore();
+
+/** 已配置过的 Chrome 路径，去重后供下拉选择（也允许手动输入新路径） */
+const chromePathOptions = computed(() => {
+  const set = new Set<string>();
+
+  profileStore.profiles.forEach(p => {
+    const path = p.chrome_path?.trim();
+    if (path) set.add(path);
+  });
+
+  return Array.from(set).sort();
+});
+
+/** 已配置过的主页地址，去重后供下拉选择（也允许手动输入新地址） */
+const homepageOptions = computed(() => {
+  const set = new Set<string>();
+
+  profileStore.profiles.forEach(p => {
+    const url = p.homepage?.trim();
+    if (url) set.add(url);
+  });
+
+  return Array.from(set).sort();
+});
 
 const emit = defineEmits<{
   'update:modelValue': [value: boolean];
@@ -175,7 +356,29 @@ const form = ref({
   disable_extensions: true,
   debugger_mode: true,
   debug_port_config: undefined as number | undefined,
+  workspace_id: null as string | null,
+  template_id: '' as string,
+  template_mode: 'extensions' as string,
+  launch_args: emptyLaunchArgs(),
 });
+
+/** 启动参数区块默认收起，已有配置时才展开 */
+const showLaunchArgs = ref(false);
+
+const hasLaunchArgs = (args: LaunchArgs) =>
+  Boolean(
+    args.proxy || args.userAgent || args.windowSize || args.windowPosition || args.language || args.extraArgs
+  );
+
+/** 可选模板：由 store 中被标记的配置提供 */
+const templateProfiles = computed(() => profileStore.templateProfiles);
+
+/** 选中模板后必须放开扩展，否则复制过去的扩展不会加载 */
+const handleTemplateChange = () => {
+  if (form.value.template_id) {
+    form.value.disable_extensions = false;
+  }
+};
 
 const tagList = ref<string[]>([]);
 
@@ -197,6 +400,8 @@ watch(
   () => props.profile,
   (profile) => {
     if (profile) {
+      const launchArgs = mergeLaunchArgs(profile.launch_args);
+
       form.value = {
         name: profile.name,
         chrome_path: profile.chrome_path || '',
@@ -207,7 +412,12 @@ watch(
         disable_extensions: profile.disable_extensions ?? true,
         debugger_mode: profile.debugger_mode ?? true,
         debug_port_config: profile.debug_port_config,
+        workspace_id: profile.workspace_id ?? null,
+        template_id: '',
+        template_mode: 'extensions',
+        launch_args: launchArgs,
       };
+      showLaunchArgs.value = hasLaunchArgs(launchArgs);
       tagList.value = profile.tags?.split(',').map(t => t.trim()).filter(Boolean) || [];
     } else {
       form.value = {
@@ -220,7 +430,12 @@ watch(
         disable_extensions: true,
         debugger_mode: true,
         debug_port_config: undefined,
+        workspace_id: props.defaultWorkspaceId ?? null,
+        template_id: '',
+        template_mode: 'extensions',
+        launch_args: emptyLaunchArgs(),
       };
+      showLaunchArgs.value = false;
       tagList.value = [];
     }
   },
@@ -272,8 +487,15 @@ const handleSubmit = async () => {
         form.value.forward_port ?? null,
         form.value.disable_extensions,
         form.value.debugger_mode,
-        form.value.debug_port_config ?? null
+        form.value.debug_port_config ?? null,
+        form.value.launch_args
       );
+
+      const targetWorkspace = form.value.workspace_id ?? null;
+      if (targetWorkspace !== (props.profile.workspace_id ?? null)) {
+        await api.moveProfileToWorkspace(props.profile.id, targetWorkspace);
+      }
+
       ElMessage.success(t('common.success'));
     } else {
       await api.createProfile(
@@ -285,7 +507,11 @@ const handleSubmit = async () => {
         form.value.forward_port || undefined,
         form.value.disable_extensions,
         form.value.debugger_mode,
-        form.value.debug_port_config || undefined
+        form.value.debug_port_config || undefined,
+        form.value.workspace_id ?? null,
+        form.value.template_id || undefined,
+        form.value.template_id ? form.value.template_mode : undefined,
+        form.value.launch_args
       );
       ElMessage.success(t('common.success'));
     }
@@ -475,5 +701,18 @@ const handleSubmit = async () => {
   color: var(--text-tertiary);
   margin-top: var(--space-1);
   line-height: 1.4;
+}
+
+.ws-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ws-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
 }
 </style>

@@ -6,7 +6,9 @@
       'is-running': profile.is_running,
       'is-selected': props.isSelected 
     }"
+    draggable="true"
     @click="$emit('click', profile)"
+    @dragstart="handleDragStart"
   >
     <!-- 全选按钮 (仅移动端或悬停显示，或者常驻) -->
     <div class="selection-box" @click.stop="$emit('toggleSelection', profile.id)">
@@ -29,7 +31,10 @@
       <!-- 信息区域 -->
       <div class="profile-info">
         <h3 class="profile-name" :title="profile.name">{{ profile.name }}</h3>
-        <div class="profile-tags" v-if="tagList.length > 0">
+        <div class="profile-tags" v-if="isTemplate || tagList.length > 0">
+          <span v-if="isTemplate" class="profile-tag template-tag">
+            {{ $t('profile.template.badge') }}
+          </span>
           <span
             v-for="tag in tagList.slice(0, 3)"
             :key="tag"
@@ -62,6 +67,10 @@
           <span v-if="profile.homepage" class="homepage-indicator" :title="profile.homepage">
             <el-icon><Link /></el-icon>
           </span>
+          <span v-if="sizeLabel" class="size-info" :title="$t('profile.status.size')">
+            <el-icon><Coin /></el-icon>
+            <span>{{ sizeLabel }}</span>
+          </span>
         </div>
       </div>
       
@@ -82,39 +91,15 @@
           </button>
         </el-tooltip>
         
-        <el-dropdown trigger="click" @command="handleCommand" @click.stop>
-          <button class="action-btn more-btn" @click.stop>
-            <el-icon><MoreFilled /></el-icon>
-          </button>
-          <template #dropdown>
-            <el-dropdown-menu class="profile-dropdown-menu">
-              <el-dropdown-item command="edit">
-                <el-icon><Edit /></el-icon>
-                <span>{{ $t('profile.actions.edit') }}</span>
-              </el-dropdown-item>
-              <el-dropdown-item command="performance">
-                <el-icon><DataLine /></el-icon>
-                <span>{{ $t('profile.actions.performance') }}</span>
-              </el-dropdown-item>
-              <el-dropdown-item command="backup">
-                <el-icon><DocumentCopy /></el-icon>
-                <span>{{ $t('profile.actions.backup') }}</span>
-              </el-dropdown-item>
-              <el-dropdown-item command="openDir">
-                <el-icon><FolderOpened /></el-icon>
-                <span>{{ $t('profile.actions.openDir') }}</span>
-              </el-dropdown-item>
-              <el-dropdown-item command="repair">
-                <el-icon><Refresh /></el-icon>
-                <span>{{ $t('profile.actions.repair') }}</span>
-              </el-dropdown-item>
-              <el-dropdown-item divided command="delete" class="danger-item">
-                <el-icon><Delete /></el-icon>
-                <span>{{ $t('profile.actions.delete') }}</span>
-              </el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
+        <ProfileCardMenu
+          :profile="profile"
+          @edit="emit('edit', props.profile)"
+          @backup="emit('backup', props.profile)"
+          @performance="emit('performance', props.profile)"
+          @delete="emit('delete', props.profile)"
+          @open-dir="emit('openDir', props.profile)"
+          @repair="emit('repair', props.profile)"
+        />
       </div>
     </div>
   </div>
@@ -123,22 +108,22 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { 
-  UserFilled, 
-  Timer, 
-  Edit, 
-  Delete, 
-  DocumentCopy, 
-  FolderOpened,
+import {
+  UserFilled,
+  Timer,
   VideoPlay,
-  MoreFilled,
   Loading,
   Link,
-  DataLine,
   Check,
-  Refresh
+  Coin
 } from '@element-plus/icons-vue';
 import type { Profile } from '../types';
+import { useProfileStore } from '../store/profile';
+import { formatSize } from '../utils/format';
+import { PROFILE_DRAG_TYPE, PROFILE_REORDER_TYPE } from '../utils/dnd';
+import ProfileCardMenu from './ProfileCardMenu.vue';
+
+const profileStore = useProfileStore();
 
 const props = defineProps<{
   profile: Profile;
@@ -181,6 +166,30 @@ const formatDate = (dateStr: string) => {
   return date.toLocaleDateString(locale.value === 'zh' ? 'zh-CN' : 'en-US', { month: 'short', day: 'numeric' });
 };
 
+const isTemplate = computed(() => profileStore.templateIds.includes(props.profile.id));
+
+/**
+ * 拖拽时：若当前卡片属于已勾选集合，则带上全部勾选项，支持一次拖多个；
+ * 否则只拖这一张。
+ */
+const handleDragStart = (event: DragEvent) => {
+  if (!event.dataTransfer) return;
+
+  const ids = props.isSelected
+    ? Array.from(profileStore.selectedIds)
+    : [props.profile.id];
+
+  // 拖到侧边栏 = 移动到工作区；拖回网格内 = 重新排序，两者用不同 MIME 区分
+  event.dataTransfer.setData(PROFILE_DRAG_TYPE, JSON.stringify(ids));
+  event.dataTransfer.setData(PROFILE_REORDER_TYPE, props.profile.id);
+  event.dataTransfer.effectAllowed = 'move';
+};
+
+const sizeLabel = computed(() => {
+  const bytes = profileStore.sizeOf(props.profile.id);
+  return bytes === undefined ? '' : formatSize(bytes);
+});
+
 const handleLaunch = async () => {
   if (props.isLaunching) {
     return;
@@ -188,28 +197,6 @@ const handleLaunch = async () => {
   emit('launch', props.profile);
 };
 
-const handleCommand = (command: string) => {
-  switch (command) {
-    case 'edit':
-      emit('edit', props.profile);
-      break;
-    case 'backup':
-      emit('backup', props.profile);
-      break;
-    case 'openDir':
-      emit('openDir', props.profile);
-      break;
-    case 'delete':
-      emit('delete', props.profile);
-      break;
-    case 'performance':
-      emit('performance', props.profile);
-      break;
-    case 'repair':
-      emit('repair', props.profile);
-      break;
-  }
-};
 </script>
 
 <style scoped lang="scss">
@@ -272,7 +259,7 @@ const handleCommand = (command: string) => {
 .selection-box {
   position: absolute;
   top: 8px;
-  right: 8px;
+  left: 8px;
   width: 20px;
   height: 20px;
   z-index: 2;
@@ -313,6 +300,12 @@ const handleCommand = (command: string) => {
   background: var(--primary-500);
   opacity: 0;
   transition: opacity 0.2s ease;
+}
+
+.template-tag {
+  background: rgba(139, 92, 246, 0.14);
+  color: var(--primary-600, #7c3aed);
+  font-weight: var(--font-medium);
 }
 
 // 状态标签
@@ -443,6 +436,18 @@ const handleCommand = (command: string) => {
 
   &.never {
     color: var(--text-quaternary);
+  }
+}
+
+.size-info {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--text-tertiary);
+
+  .el-icon {
+    font-size: 12px;
+    cursor: help;
   }
 }
 
@@ -689,6 +694,18 @@ const handleCommand = (command: string) => {
     .el-icon {
       font-size: 14px;
     }
+  }
+}
+
+// 菜单内部元素（.move-trigger / .ws-dot）已随菜单一起迁入 ProfileCardMenu
+:deep(.move-dropdown-menu) {
+  max-height: 300px;
+  overflow-y: auto;
+
+  .el-dropdown-menu__item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
   }
 }
 

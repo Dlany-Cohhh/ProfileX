@@ -1,6 +1,6 @@
 use std::fs;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 use zip::write::SimpleFileOptions;
 use zip::ZipWriter;
@@ -20,9 +20,191 @@ pub struct RestoreResult {
     pub error: Option<String>,
 }
 
+/// 模板「仅扩展与脚本」模式要复制的条目（位于浏览器 profile 目录内，如 Default/）
+/// 扩展本体在 Extensions，Tampermonkey 之类的脚本存在 Local/Sync Extension Settings，
+/// Preferences / Secure Preferences 记录扩展的启用状态与权限，缺了扩展不会被加载
+const TEMPLATE_EXTENSION_ITEMS: &[&str] = &[
+    "Extensions",
+    "Extension Rules",
+    "Extension State",
+    "Local Extension Settings",
+    "Sync Extension Settings",
+    "Preferences",
+    "Secure Preferences",
+];
+
+/// 模板「完整克隆」模式要排除的易失/缓存条目
+const TEMPLATE_SKIP_ITEMS: &[&str] = &[
+    "Cache",
+    "CacheStorage",
+    "Code Cache",
+    "GPUCache",
+    "GrShaderCache",
+    "ShaderCache",
+    "Sessions",
+    "Sessions_Encrypted",
+    "Session Storage",
+    "Service Worker",
+    "Crashpad",
+    "BrowserMetrics",
+    "BrowserMetrics-spare.pma",
+    "VideoDecodeStats",
+    "optimization_guide_hint_cache_store",
+];
+
+/// 含 Preferences 的目录才是浏览器 profile 目录（Default、Profile 1 …）
+fn is_browser_profile_dir(dir: &Path) -> bool {
+    dir.join("Preferences").exists()
+}
+
+fn copy_dir_recursive(src: &Path, dst: &Path) -> io::Result<()> {
+    fs::create_dir_all(dst)?;
+
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let target = dst.join(entry.file_name());
+
+        if entry.file_type()?.is_dir() {
+            copy_dir_recursive(&entry.path(), &target)?;
+        } else {
+            fs::copy(&entry.path(), &target)?;
+        }
+    }
+
+    Ok(())
+}
+
+/// 可由浏览器重新生成、无需进备份包的缓存目录（按目录名匹配）
+const CACHE_DIRS: &[&str] = &[
+    "Cache",
+    "Code Cache",
+    "GPUCache",
+    "GrShaderCache",
+    "ShaderCache",
+    "CacheStorage",
+    "Service Worker",
+    "Application Cache",
+    "component_crx_cache",
+    "extensions_crx_cache",
+    "ProvenanceData",
+    "BrowserMetrics",
+    "BrowserMetrics-spare.pma",
+    "WidevineCdm",
+    "Subresource Filter",
+    "OptimizationHints",
+];
+
+/// 执行「清理缓存」时真正删除的目录，Cookie / 登录态 / 扩展配置均不在此列
+const CLEARABLE_CACHE_DIRS: &[&str] = &[
+    "Cache",
+    "Code Cache",
+    "GPUCache",
+    "GrShaderCache",
+    "ShaderCache",
+    "CacheStorage",
+    "Service Worker",
+    "Application Cache",
+    "component_crx_cache",
+    "extensions_crx_cache",
+    "ProvenanceData",
+    "BrowserMetrics",
+    "BrowserMetrics-spare.pma",
+    "WidevineCdm",
+    "Subresource Filter",
+    "OptimizationHints",
+];
+
+fn is_cache_dir(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .map(|n| CACHE_DIRS.iter().any(|d| n.eq_ignore_ascii_case(d)))
+        .unwrap_or(false)
+}
+
 pub struct ProfileManager;
 
 impl ProfileManager {
+    /// 清理缓存，返回释放的字节数。不会触碰 Cookie、登录态、扩展配置
+    pub fn clear_profile_cache(profile_dir: &PathBuf) -> u64 {
+        let mut freed: u64 = 0;
+
+        // contents_first：自底向上，先删子目录再删父目录，避免遍历被自己的删除打断
+        for entry in WalkDir::new(profile_dir).contents_first(true) {
+            let entry = match entry {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+
+            if !entry.file_type().is_dir() {
+                continue;
+            }
+
+            let matched = entry
+                .file_name()
+                .to_str()
+                .map(|n| CLEARABLE_CACHE_DIRS.iter().any(|d| n.eq_ignore_ascii_case(d)))
+                .unwrap_or(false);
+
+            if !matched {
+                continue;
+            }
+
+            freed += Self::get_directory_size(&entry.path().to_path_buf()).unwrap_or(0);
+
+            // 浏览器仍占用时可能删除失败，忽略即可，下次再清理
+            let _ = fs::remove_dir_all(entry.path());
+        }
+
+        freed
+    }
+
+    /// 把模板配置的浏览器数据套用到新配置上，返回复制的条目数。
+    /// full = true 时完整克隆（含登录态与站点数据），否则只复制扩展与脚本。
+    pub fn apply_template(template_dir: &Path, target_dir: &Path, full: bool) -> io::Result<usize> {
+        let mut copied = 0usize;
+
+        for entry in fs::read_dir(template_dir)?.flatten() {
+            if entry.file_type()?.is_dir() == false {
+                continue;
+            }
+
+            // 根目录下混杂着大量组件目录，只处理真正的浏览器 profile 目录
+            if !is_browser_profile_dir(&entry.path()) {
+                continue;
+            }
+
+            let dir_name = entry.file_name();
+            let dir_name = dir_name.to_string_lossy().to_string();
+            let target_profile_dir = target_dir.join(&dir_name);
+            fs::create_dir_all(&target_profile_dir)?;
+
+            for item in fs::read_dir(entry.path())?.flatten() {
+                let item_name = item.file_name();
+                let item_name = item_name.to_string_lossy().to_string();
+
+                if full {
+                    if TEMPLATE_SKIP_ITEMS.contains(&item_name.as_str()) {
+                        continue;
+                    }
+                } else if !TEMPLATE_EXTENSION_ITEMS.contains(&item_name.as_str()) {
+                    continue;
+                }
+
+                let item_target = target_profile_dir.join(&item_name);
+
+                if item.file_type()?.is_dir() {
+                    copy_dir_recursive(&item.path(), &item_target)?;
+                } else {
+                    fs::copy(&item.path(), &item_target)?;
+                }
+
+                copied += 1;
+            }
+        }
+
+        Ok(copied)
+    }
+
     pub fn create_profile_directory(base_dir: &PathBuf, _profile_name: &str) -> io::Result<PathBuf> {
         let uuid = uuid::Uuid::new_v4().to_string().replace('-', "");
         let profile_dir = base_dir.join(&uuid);
@@ -96,12 +278,13 @@ impl ProfileManager {
 
         let buf_writer = io::BufWriter::new(file);
         let mut zip = ZipWriter::new(buf_writer);
+        // 用最快压缩：备份包只是本地归档，压缩率高 15% 换不来 2~3 倍的耗时
         let options = SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated)
+            .compression_level(Some(1))
             .unix_permissions(0o755);
 
         let mut total_size: i64 = 0;
-        let excluded_dirs = ["Cache", "Code Cache", "GPUCache", "Service Worker", "CacheStorage"];
 
         for entry in WalkDir::new(profile_dir) {
             match entry {
@@ -110,8 +293,8 @@ impl ProfileManager {
                     let name = path.strip_prefix(profile_dir).unwrap_or(path);
                     let name_str = name.to_string_lossy();
 
-                    // Skip common large cache directories
-                    if path.is_dir() && excluded_dirs.iter().any(|&d| name_str.contains(d)) {
+                    // 跳过缓存目录：它们可从网络/本地重新生成，打进去只会让备份包膨胀
+                    if path.is_dir() && is_cache_dir(path) {
                         continue;
                     }
 

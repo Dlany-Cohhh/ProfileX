@@ -1,6 +1,7 @@
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 mod db;
 mod chrome;
@@ -11,7 +12,7 @@ mod browser_monitor;
 mod error;
 mod cdp;
 
-use db::{Database, Profile, Backup, PerformanceRecord};
+use db::{Database, Profile, Backup, PerformanceRecord, Workspace, LaunchArgs};
 use chrome::{ChromeManager, ChromeLaunchResult};
 use profile_manager::{ProfileManager, BackupResult, RestoreResult};
 use browser_monitor::BrowserMonitor;
@@ -23,6 +24,211 @@ use std::time::Duration;
 struct AppState {
     db: Arc<Mutex<Database>>,
     chrome_manager: ChromeManager,
+}
+
+/// 可迁移的数据目录配置，存在 app_data_dir/config.json
+#[derive(serde::Serialize, serde::Deserialize, Default, Clone)]
+#[serde(default)]
+struct AppConfig {
+    data_dir: Option<String>,
+    backup_dir: Option<String>,
+    /// 每个配置保留的备份数量，0 = 不限制
+    backup_retention: Option<usize>,
+    /// 窗口几何记忆
+    window: Option<WindowState>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Default, Clone, Copy)]
+struct WindowState {
+    width: f64,
+    height: f64,
+    x: f64,
+    y: f64,
+}
+
+fn backup_retention_of(app: &AppHandle) -> usize {
+    load_config(app).backup_retention.unwrap_or(0)
+}
+
+/// 删除备份文件。记录里的路径可能是搬迁前的旧位置，
+/// 这时改到当前备份目录下按同名文件删，避免留下删不掉的孤儿文件
+fn remove_backup_file(app: &AppHandle, path: &str) {
+    let target = PathBuf::from(path);
+    if target.exists() {
+        let _ = fs::remove_file(target);
+        return;
+    }
+
+    let Some(name) = target.file_name() else {
+        return;
+    };
+
+    if let Ok(backup_dir) = backup_dir_of(app) {
+        let moved = backup_dir.join(name);
+        if moved.exists() {
+            let _ = fs::remove_file(moved);
+        }
+    }
+}
+
+/// 按保留策略清理某个配置的旧备份
+fn prune_backups_for(app: &AppHandle, db: &Database, profile_id: &str) {
+    let keep = backup_retention_of(app);
+    if keep == 0 {
+        return;
+    }
+
+    let Ok(stale) = db.prune_backups(profile_id, keep) else {
+        return;
+    };
+
+    for path in stale {
+        remove_backup_file(app, &path);
+    }
+}
+
+#[derive(serde::Serialize)]
+struct PathsInfo {
+    app_data_dir: String,
+    profiles_dir: String,
+    backup_dir: String,
+    using_custom_data_dir: bool,
+    using_custom_backup_dir: bool,
+    backup_retention: usize,
+}
+
+fn app_data_dir_of(app: &AppHandle) -> AppResult<PathBuf> {
+    Ok(app.path().app_data_dir()?)
+}
+
+fn load_config(app: &AppHandle) -> AppConfig {
+    let Ok(dir) = app_data_dir_of(app) else {
+        return AppConfig::default();
+    };
+
+    match fs::read_to_string(dir.join("config.json")) {
+        Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
+        Err(_) => AppConfig::default(),
+    }
+}
+
+fn save_config(app: &AppHandle, config: &AppConfig) -> AppResult<()> {
+    let dir = app_data_dir_of(app)?;
+    fs::create_dir_all(&dir)?;
+
+    let content =
+        serde_json::to_string_pretty(config).map_err(|e| AppError::Other(e.to_string()))?;
+    fs::write(dir.join("config.json"), content)?;
+
+    Ok(())
+}
+
+fn profiles_dir_of(app: &AppHandle) -> AppResult<PathBuf> {
+    let base = app_data_dir_of(app)?;
+
+    match load_config(app).data_dir {
+        Some(dir) if !dir.trim().is_empty() => Ok(PathBuf::from(dir)),
+        _ => Ok(base.join("profiles")),
+    }
+}
+
+fn backup_dir_of(app: &AppHandle) -> AppResult<PathBuf> {
+    match load_config(app).backup_dir {
+        Some(dir) if !dir.trim().is_empty() => Ok(PathBuf::from(dir)),
+        _ => {
+            let home = dirs::home_dir()
+                .ok_or_else(|| AppError::InvalidPath("无法定位用户目录".to_string()))?;
+            Ok(home.join("SpaceShift").join("Backups"))
+        }
+    }
+}
+
+fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(dst)?;
+
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let target = dst.join(entry.file_name());
+
+        if entry.file_type()?.is_dir() {
+            copy_dir_recursive(&entry.path(), &target)?;
+        } else {
+            fs::copy(&entry.path(), &target)?;
+        }
+    }
+
+    Ok(())
+}
+
+/// 备份进度事件，前端用它显示「正在备份 3/8」
+#[derive(serde::Serialize, Clone)]
+struct BackupProgress {
+    current: usize,
+    total: usize,
+    name: String,
+}
+
+/// 搬迁进度事件，前端用它画进度条
+#[derive(serde::Serialize, Clone)]
+struct MigrationProgress {
+    current: usize,
+    total: usize,
+    label: String,
+}
+
+/// 搬迁目录内容，返回 (成功数, 跳过数)。跨盘时 rename 会失败，退化为复制后删除
+fn move_dir_contents_with_progress(
+    src: &Path,
+    dst: &Path,
+    mut on_progress: impl FnMut(usize, usize, String),
+) -> (usize, usize) {
+    let entries: Vec<PathBuf> = match fs::read_dir(src) {
+        Ok(entries) => entries.flatten().map(|entry| entry.path()).collect(),
+        Err(_) => return (0, 0),
+    };
+
+    let total = entries.len();
+    let mut moved = 0usize;
+    let mut skipped = 0usize;
+
+    for (index, path) in entries.into_iter().enumerate() {
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string();
+
+        // 先上报进度，再开工，这样界面能立刻动起来
+        on_progress(index, total, name.clone());
+
+        let target = dst.join(&name);
+
+        // 目标已存在同名目录则不覆盖，避免误伤已有数据
+        if target.exists() {
+            skipped += 1;
+            continue;
+        }
+
+        if fs::rename(&path, &target).is_ok() {
+            moved += 1;
+            continue;
+        }
+
+        if copy_dir_recursive(&path, &target).is_ok() {
+            let _ = fs::remove_dir_all(&path);
+            moved += 1;
+        } else {
+            skipped += 1;
+        }
+    }
+
+    (moved, skipped)
+}
+
+/// 判断是否已有配置在运行，搬迁前必须先全部关闭
+fn running_profile_count(state: &State<AppState>) -> AppResult<usize> {
+    let db = state.db.lock().map_err(|e| AppError::Other(e.to_string()))?;
+    Ok(db.get_all_profiles()?.iter().filter(|p| p.is_running).count())
 }
 
 #[tauri::command]
@@ -48,18 +254,79 @@ fn create_profile(
     disable_extensions: Option<bool>,
     debugger_mode: Option<bool>,
     debug_port_config: Option<u16>,
+    workspace_id: Option<String>,
+    template_id: Option<String>,
+    template_mode: Option<String>,
+    launch_args: Option<LaunchArgs>,
     app_handle: AppHandle,
     state: State<AppState>,
 ) -> AppResult<Profile> {
-    let app_data_dir = app_handle.path().app_data_dir()?;
-    let profiles_dir = app_data_dir.join("profiles");
+    let profiles_dir = profiles_dir_of(&app_handle)?;
 
     std::fs::create_dir_all(&profiles_dir)?;
 
+    // 先取出模板并校验，避免校验失败时留下一个空目录
+    let template = match template_id.as_deref() {
+        Some(id) if !id.is_empty() => {
+            let db = state.db.lock().map_err(|e| AppError::Other(e.to_string()))?;
+            db.get_profile_by_id(id)?
+        }
+        _ => None,
+    };
+
+    if let Some(running) = template.as_ref().filter(|t| t.is_running) {
+        return Err(AppError::Other(format!(
+            "模板配置「{}」正在运行，请先关闭它再套用",
+            running.name
+        )));
+    }
+
     let profile_dir = ProfileManager::create_profile_directory(&profiles_dir, &name)?;
 
+    // 套用模板：把模板配置的浏览器数据复制进新目录，扩展与脚本才会跟着过来
+    let applied = match template {
+        Some(template) => {
+            let src = PathBuf::from(&template.data_dir_path);
+
+            if src.exists() {
+                ProfileManager::apply_template(
+                    &src,
+                    &profile_dir,
+                    template_mode.as_deref() == Some("full"),
+                )?;
+                true
+            } else {
+                false
+            }
+        }
+        None => false,
+    };
+
+    // 套用了模板就必须允许加载扩展，否则复制过去的扩展不会生效
+    let disable_extensions = if applied {
+        false
+    } else {
+        disable_extensions.unwrap_or(true)
+    };
+
     let db = state.db.lock().map_err(|e| AppError::Other(e.to_string()))?;
-    Ok(db.create_profile(&name, &profile_dir.to_string_lossy(), chrome_path.as_deref(), homepage.as_deref(), icon_base64.as_deref(), tags.as_deref(), forward_port, disable_extensions.unwrap_or(true), debugger_mode.unwrap_or(true), debug_port_config)?)
+    Ok(db.create_profile(&name, &profile_dir.to_string_lossy(), chrome_path.as_deref(), homepage.as_deref(), icon_base64.as_deref(), tags.as_deref(), forward_port, disable_extensions, debugger_mode.unwrap_or(true), debug_port_config, workspace_id.as_deref(), launch_args.as_ref())?)
+}
+
+#[tauri::command]
+fn set_profile_template(
+    id: String,
+    is_template: bool,
+    state: State<AppState>,
+) -> AppResult<bool> {
+    let db = state.db.lock().map_err(|e| AppError::Other(e.to_string()))?;
+    Ok(db.set_profile_template(&id, is_template)?)
+}
+
+#[tauri::command]
+fn get_template_ids(state: State<AppState>) -> AppResult<Vec<String>> {
+    let db = state.db.lock().map_err(|e| AppError::Other(e.to_string()))?;
+    Ok(db.get_template_ids()?)
 }
 
 #[tauri::command]
@@ -74,10 +341,22 @@ fn update_profile(
     disable_extensions: Option<bool>,
     debugger_mode: Option<bool>,
     debug_port_config: Option<u16>,
+    launch_args: Option<LaunchArgs>,
     state: State<AppState>,
 ) -> AppResult<bool> {
     let db = state.db.lock().map_err(|e| AppError::Other(e.to_string()))?;
-    Ok(db.update_profile(&id, name.as_deref(), chrome_path.as_deref(), homepage.as_deref(), icon_base64.as_deref(), tags.as_deref(), forward_port, disable_extensions, debugger_mode, debug_port_config)?)
+    Ok(db.update_profile(&id, name.as_deref(), chrome_path.as_deref(), homepage.as_deref(), icon_base64.as_deref(), tags.as_deref(), forward_port, disable_extensions, debugger_mode, debug_port_config, launch_args.as_ref())?)
+}
+
+/// 批量移动到同一工作区：一次调用完成，避免前端逐个往返
+#[tauri::command]
+fn move_profiles_to_workspace(
+    ids: Vec<String>,
+    workspace_id: Option<String>,
+    state: State<AppState>,
+) -> AppResult<usize> {
+    let db = state.db.lock().map_err(|e| AppError::Other(e.to_string()))?;
+    Ok(db.move_profiles_to_workspace(&ids, workspace_id.as_deref())?)
 }
 
 #[tauri::command]
@@ -132,6 +411,7 @@ fn launch_chrome(
         launch_url,
         debug_port,
         profile.disable_extensions,
+        &profile.launch_args,
     );
 
     if result.success {
@@ -248,6 +528,7 @@ fn launch_chrome(
 
 #[tauri::command]
 async fn backup_profile(
+    app_handle: AppHandle,
     id: String,
     backup_dir: String,
     state: State<'_, AppState>,
@@ -270,6 +551,7 @@ async fn backup_profile(
         if let Some(backup_file_path) = &result.backup_path {
             let db = state.db.lock().map_err(|e| AppError::Other(e.to_string()))?;
             let _ = db.create_backup(&id, backup_file_path, result.size_bytes);
+            prune_backups_for(&app_handle, &db, &id);
         }
     }
     
@@ -404,6 +686,439 @@ fn unlock_profile(id: String, state: State<AppState>) -> AppResult<()> {
     Ok(())
 }
 
+#[tauri::command]
+async fn clear_profile_cache(id: String, state: State<'_, AppState>) -> AppResult<u64> {
+    let (profile_dir, is_running) = {
+        let db = state.db.lock().map_err(|e| AppError::Other(e.to_string()))?;
+        let profile = db.get_profile_by_id(&id)?.ok_or(AppError::ProfileNotFound)?;
+        (PathBuf::from(&profile.data_dir_path), profile.is_running)
+    };
+
+    // 运行中目录里的缓存文件被浏览器占用，删不掉且可能损坏状态
+    if is_running {
+        return Err(AppError::Other("请先关闭该配置，再清理缓存".to_string()));
+    }
+
+    tauri::async_runtime::spawn_blocking(move || {
+        ProfileManager::clear_profile_cache(&profile_dir)
+    })
+    .await
+    .map_err(|e| AppError::Other(e.to_string()))
+}
+
+#[tauri::command]
+fn get_paths(app_handle: AppHandle) -> AppResult<PathsInfo> {
+    let app_data_dir = app_data_dir_of(&app_handle)?;
+    let profiles_dir = profiles_dir_of(&app_handle)?;
+    let backup_dir = backup_dir_of(&app_handle)?;
+    let config = load_config(&app_handle);
+
+    Ok(PathsInfo {
+        app_data_dir: app_data_dir.to_string_lossy().to_string(),
+        profiles_dir: profiles_dir.to_string_lossy().to_string(),
+        backup_dir: backup_dir.to_string_lossy().to_string(),
+        using_custom_data_dir: config.data_dir.is_some(),
+        using_custom_backup_dir: config.backup_dir.is_some(),
+        backup_retention: config.backup_retention.unwrap_or(0),
+    })
+}
+
+/// 设置每个配置保留的备份数量，0 = 不限制。立即按新策略清理一次
+#[tauri::command]
+fn set_backup_retention(app_handle: AppHandle, keep: usize, state: State<AppState>) -> AppResult<PathsInfo> {
+    {
+        let db = state.db.lock().map_err(|e| AppError::Other(e.to_string()))?;
+
+        // 先取全部配置 id，避免清理过程中反复锁库
+        let ids: Vec<String> = db.get_all_profiles()?.into_iter().map(|p| p.id).collect();
+
+        if keep > 0 {
+            let mut stale: Vec<String> = Vec::new();
+
+            for id in &ids {
+                stale.extend(db.prune_backups(id, keep)?);
+            }
+
+            for path in stale {
+                remove_backup_file(&app_handle, &path);
+            }
+        }
+    }
+
+    let mut config = load_config(&app_handle);
+    config.backup_retention = Some(keep);
+    save_config(&app_handle, &config)?;
+
+    get_paths(app_handle)
+}
+
+/// 记住窗口大小与位置，下次启动恢复
+#[tauri::command]
+fn save_window_state(app_handle: AppHandle) -> AppResult<()> {
+    let Some(window) = app_handle.get_webview_window("main") else {
+        return Ok(());
+    };
+
+    let scale = window.scale_factor().unwrap_or(1.0);
+
+    let Ok(size) = window.inner_size() else {
+        return Ok(());
+    };
+    let Ok(position) = window.outer_position() else {
+        return Ok(());
+    };
+
+    let mut config = load_config(&app_handle);
+    config.window = Some(WindowState {
+        width: size.width as f64 / scale,
+        height: size.height as f64 / scale,
+        x: position.x as f64 / scale,
+        y: position.y as f64 / scale,
+    });
+    save_config(&app_handle, &config)?;
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn set_data_dir(
+    app_handle: AppHandle,
+    path: String,
+    state: State<'_, AppState>,
+) -> AppResult<PathsInfo> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::InvalidPath("目录不能为空".to_string()));
+    }
+
+    if running_profile_count(&state)? > 0 {
+        return Err(AppError::Other(
+            "有配置正在运行，请先全部关闭后再搬迁数据目录".to_string(),
+        ));
+    }
+
+    let new_dir = PathBuf::from(trimmed);
+    let old_dir = profiles_dir_of(&app_handle)?;
+
+    // 已指向同一位置（例如通过 junction 指向的目标）只记录配置，不搬迁
+    let same_location = fs::canonicalize(&old_dir)
+        .and_then(|old| fs::canonicalize(&new_dir).map(|new| old == new))
+        .unwrap_or(false);
+
+    if !same_location {
+        let old_prefix = old_dir.to_string_lossy().to_string();
+        let new_prefix = new_dir.to_string_lossy().to_string();
+
+        let handle = app_handle.clone();
+        let move_from = old_dir.clone();
+        let move_to = new_dir.clone();
+
+        let (moved, _skipped) = tauri::async_runtime::spawn_blocking(move || {
+            fs::create_dir_all(&move_to)?;
+
+            let (moved, skipped) = move_dir_contents_with_progress(
+                &move_from,
+                &move_to,
+                |current, total, label| {
+                    let _ = handle.emit(
+                        "migration-progress",
+                        MigrationProgress {
+                            current,
+                            total,
+                            label,
+                        },
+                    );
+                },
+            );
+
+            Ok::<(usize, usize), std::io::Error>((moved, skipped))
+        })
+        .await
+        .map_err(|e| AppError::Other(e.to_string()))?
+        .map_err(|e| AppError::Other(e.to_string()))?;
+
+        // 文件搬走了，数据库里的绝对路径必须跟着改，否则配置会找不到自己的目录
+        if moved > 0 {
+            let db = state.db.lock().map_err(|e| AppError::Other(e.to_string()))?;
+            db.rewrite_data_dir_prefix(&old_prefix, &new_prefix)?;
+        }
+    }
+
+    let mut config = load_config(&app_handle);
+    config.data_dir = Some(new_dir.to_string_lossy().to_string());
+    save_config(&app_handle, &config)?;
+
+    get_paths(app_handle)
+}
+
+#[tauri::command]
+async fn set_backup_dir(app_handle: AppHandle, path: String) -> AppResult<PathsInfo> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::InvalidPath("目录不能为空".to_string()));
+    }
+
+    let new_dir = PathBuf::from(trimmed);
+    let old_dir = backup_dir_of(&app_handle)?;
+
+    let same_location = fs::canonicalize(&old_dir)
+        .and_then(|old| fs::canonicalize(&new_dir).map(|new| old == new))
+        .unwrap_or(false);
+
+    if !same_location && old_dir.exists() {
+        let handle = app_handle.clone();
+        let move_from = old_dir.clone();
+        let move_to = new_dir.clone();
+
+        tauri::async_runtime::spawn_blocking(move || {
+            fs::create_dir_all(&move_to)?;
+
+            move_dir_contents_with_progress(&move_from, &move_to, |current, total, label| {
+                let _ = handle.emit(
+                    "migration-progress",
+                    MigrationProgress {
+                        current,
+                        total,
+                        label,
+                    },
+                );
+            });
+
+            Ok::<(), std::io::Error>(())
+        })
+        .await
+        .map_err(|e| AppError::Other(e.to_string()))?
+        .map_err(|e| AppError::Other(e.to_string()))?;
+    } else {
+        fs::create_dir_all(&new_dir)?;
+    }
+
+    let mut config = load_config(&app_handle);
+    config.backup_dir = Some(new_dir.to_string_lossy().to_string());
+    save_config(&app_handle, &config)?;
+
+    get_paths(app_handle)
+}
+
+#[derive(serde::Serialize)]
+struct ClearCacheSummary {
+    freed_bytes: u64,
+    cleared: usize,
+    skipped: usize,
+}
+
+#[tauri::command]
+async fn clear_profiles_cache(
+    ids: Vec<String>,
+    state: State<'_, AppState>,
+) -> AppResult<ClearCacheSummary> {
+    let targets = {
+        let db = state.db.lock().map_err(|e| AppError::Other(e.to_string()))?;
+        let mut targets = Vec::new();
+
+        for id in &ids {
+            if let Some(profile) = db.get_profile_by_id(id)? {
+                targets.push((profile.data_dir_path, profile.is_running));
+            }
+        }
+
+        targets
+    };
+
+    let (freed_bytes, cleared, skipped) = tauri::async_runtime::spawn_blocking(move || {
+        let mut freed = 0u64;
+        let mut cleared = 0usize;
+        let mut skipped = 0usize;
+
+        for (data_dir, is_running) in targets {
+            let dir = PathBuf::from(data_dir);
+
+            // 运行中的配置跳过，交给用户先关闭
+            if is_running || !dir.exists() {
+                skipped += 1;
+                continue;
+            }
+
+            freed += ProfileManager::clear_profile_cache(&dir);
+            cleared += 1;
+        }
+
+        (freed, cleared, skipped)
+    })
+    .await
+    .map_err(|e| AppError::Other(e.to_string()))?;
+
+    Ok(ClearCacheSummary {
+        freed_bytes,
+        cleared,
+        skipped,
+    })
+}
+
+#[tauri::command]
+async fn get_profile_sizes(state: State<'_, AppState>) -> AppResult<Vec<(String, u64)>> {
+    let profiles = {
+        let db = state.db.lock().map_err(|e| AppError::Other(e.to_string()))?;
+        db.get_all_profiles()?
+    };
+
+    let dirs: Vec<(String, PathBuf)> = profiles
+        .into_iter()
+        .map(|p| (p.id, PathBuf::from(&p.data_dir_path)))
+        .collect();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        dirs.into_iter()
+            .map(|(id, dir)| (id, ProfileManager::get_directory_size(&dir).unwrap_or(0)))
+            .collect::<Vec<(String, u64)>>()
+    })
+    .await
+    .map_err(|e| AppError::Other(e.to_string()))
+}
+
+#[tauri::command]
+fn reorder_profiles(ids: Vec<String>, state: State<AppState>) -> AppResult<()> {
+    let db = state.db.lock().map_err(|e| AppError::Other(e.to_string()))?;
+    db.reorder_profiles(&ids)?;
+    Ok(())
+}
+
+#[tauri::command]
+fn get_workspaces(state: State<AppState>) -> AppResult<Vec<Workspace>> {
+    let db = state.db.lock().map_err(|e| AppError::Other(e.to_string()))?;
+    Ok(db.get_all_workspaces()?)
+}
+
+#[tauri::command]
+fn create_workspace(
+    name: String,
+    icon: Option<String>,
+    color: Option<String>,
+    description: Option<String>,
+    state: State<AppState>,
+) -> AppResult<Workspace> {
+    let db = state.db.lock().map_err(|e| AppError::Other(e.to_string()))?;
+    Ok(db.create_workspace(&name, icon.as_deref(), color.as_deref(), description.as_deref())?)
+}
+
+#[tauri::command]
+fn update_workspace(
+    id: String,
+    name: Option<String>,
+    icon: Option<String>,
+    color: Option<String>,
+    description: Option<String>,
+    state: State<AppState>,
+) -> AppResult<bool> {
+    let db = state.db.lock().map_err(|e| AppError::Other(e.to_string()))?;
+    Ok(db.update_workspace(&id, name.as_deref(), icon.as_deref(), color.as_deref(), description.as_deref())?)
+}
+
+#[tauri::command]
+fn delete_workspace(id: String, state: State<AppState>) -> AppResult<bool> {
+    let db = state.db.lock().map_err(|e| AppError::Other(e.to_string()))?;
+    Ok(db.delete_workspace(&id)?)
+}
+
+#[tauri::command]
+fn get_profiles_by_workspace(workspace_id: String, state: State<AppState>) -> AppResult<Vec<Profile>> {
+    let db = state.db.lock().map_err(|e| AppError::Other(e.to_string()))?;
+    Ok(db.get_profiles_by_workspace(&workspace_id)?)
+}
+
+#[tauri::command]
+fn move_profile_to_workspace(
+    id: String,
+    workspace_id: Option<String>,
+    state: State<AppState>,
+) -> AppResult<bool> {
+    let db = state.db.lock().map_err(|e| AppError::Other(e.to_string()))?;
+    Ok(db.set_profile_workspace(&id, workspace_id.as_deref())?)
+}
+
+#[tauri::command]
+async fn backup_workspace(
+    app_handle: AppHandle,
+    workspace_id: String,
+    backup_dir: String,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<BackupResult>> {
+    let profiles = {
+        let db = state.db.lock().map_err(|e| AppError::Other(e.to_string()))?;
+        db.get_profiles_by_workspace(&workspace_id)?
+    };
+
+    run_backup(app_handle, state.db.clone(), profiles, backup_dir).await
+}
+
+/// 批量备份指定 id 的配置：一次调用完成，避免前端逐个往返
+#[tauri::command]
+async fn backup_profiles(
+    app_handle: AppHandle,
+    ids: Vec<String>,
+    backup_dir: String,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<BackupResult>> {
+    let profiles = {
+        let db = state.db.lock().map_err(|e| AppError::Other(e.to_string()))?;
+
+        let mut list = Vec::new();
+        for id in ids {
+            if let Some(profile) = db.get_profile_by_id(&id)? {
+                list.push(profile);
+            }
+        }
+
+        list
+    };
+
+    run_backup(app_handle, state.db.clone(), profiles, backup_dir).await
+}
+
+/// 逐个打包并在打包前上报进度，让界面能显示「正在备份 3/8」
+async fn run_backup(
+    app_handle: AppHandle,
+    db: Arc<Mutex<Database>>,
+    profiles: Vec<Profile>,
+    backup_dir: String,
+) -> AppResult<Vec<BackupResult>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let backup_path = PathBuf::from(&backup_dir);
+        let mut results = Vec::new();
+        let total = profiles.len();
+
+        for (index, profile) in profiles.into_iter().enumerate() {
+            let _ = app_handle.emit(
+                "backup-progress",
+                BackupProgress {
+                    current: index + 1,
+                    total,
+                    name: profile.name.clone(),
+                },
+            );
+
+            let profile_dir = PathBuf::from(&profile.data_dir_path);
+            let result = ProfileManager::backup_profile(&profile_dir, &backup_path, &profile.name);
+
+            if result.success {
+                if let Some(path) = &result.backup_path {
+                    if let Ok(guard) = db.lock() {
+                        let _ = guard.create_backup(&profile.id, path, result.size_bytes);
+                        // 写入记录后再按保留策略清理，保证删除的始终是最旧的
+                        prune_backups_for(&app_handle, &guard, &profile.id);
+                    }
+                }
+            }
+
+            results.push(result);
+        }
+
+        results
+    })
+    .await
+    .map_err(|e| AppError::Other(e.to_string()))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -424,6 +1139,24 @@ pub fn run() {
                 db,
                 chrome_manager,
             });
+
+            // 恢复上次关闭时的窗口大小与位置
+            if let Some(window) = app.get_webview_window("main") {
+                if let Some(saved) = load_config(app.handle()).window {
+                    let w = saved.width.max(640.0);
+                    let h = saved.height.max(480.0);
+
+                    let _ = window.set_size(tauri::LogicalSize::new(w, h));
+                    let _ = window.set_position(tauri::LogicalPosition::new(saved.x, saved.y));
+                }
+
+                let handle = app.handle().clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { .. } = event {
+                        let _ = save_window_state(handle.clone());
+                    }
+                });
+            }
             
             Ok(())
         })
@@ -445,6 +1178,26 @@ pub fn run() {
             get_app_data_dir,
             open_profile_directory,
             unlock_profile,
+            get_workspaces,
+            create_workspace,
+            update_workspace,
+            delete_workspace,
+            get_profiles_by_workspace,
+            move_profile_to_workspace,
+            backup_workspace,
+            clear_profile_cache,
+            clear_profiles_cache,
+            reorder_profiles,
+            set_profile_template,
+            get_template_ids,
+            get_profile_sizes,
+            get_paths,
+            set_data_dir,
+            set_backup_dir,
+            set_backup_retention,
+            save_window_state,
+            move_profiles_to_workspace,
+            backup_profiles,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

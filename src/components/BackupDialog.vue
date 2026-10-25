@@ -69,7 +69,6 @@ import { ref, computed, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { DocumentCopy, Document, FolderOpened } from '@element-plus/icons-vue';
-import { homeDir, join } from '@tauri-apps/api/path';
 import type { Profile, Backup } from '../types';
 import { api } from '../api';
 import { formatSize, formatDate } from '../utils/format';
@@ -123,10 +122,7 @@ const getBackupName = (path: string) => {
   return parts[parts.length - 1];
 };
 
-const getDefaultBackupDir = async (): Promise<string> => {
-  const home = await homeDir();
-  return await join(home, 'SpaceShift', 'Backups');
-};
+const getDefaultBackupDir = (): Promise<string> => api.getBackupDir();
 
 const handleBackup = async () => {
   if (!props.profile) return;

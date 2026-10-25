@@ -2,6 +2,7 @@ use std::process::Command;
 use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
+use crate::db::LaunchArgs;
 use crate::network_optimizer::NetworkOptimizer;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -20,7 +21,7 @@ impl ChromeManager {
         ChromeManager
     }
 
-    pub fn launch_chrome(&self, _profile_id: &str, user_data_dir: &PathBuf, chrome_path: Option<&str>, url: Option<&str>, debug_port: Option<u16>, disable_extensions: bool) -> ChromeLaunchResult {
+    pub fn launch_chrome(&self, _profile_id: &str, user_data_dir: &PathBuf, chrome_path: Option<&str>, url: Option<&str>, debug_port: Option<u16>, disable_extensions: bool, launch_args: &LaunchArgs) -> ChromeLaunchResult {
         let mut cmd = if let Some(path) = chrome_path {
             Command::new(path)
         } else {
@@ -54,6 +55,10 @@ impl ChromeManager {
 
         if disable_extensions {
             cmd.arg("--disable-extensions");
+        }
+
+        for arg in launch_args.to_cli_args() {
+            cmd.arg(arg);
         }
 
         let optimized_args = NetworkOptimizer::get_optimized_args();

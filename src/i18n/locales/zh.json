@@ -15,6 +15,8 @@
         "newProfile": "新建配置",
         "settings": "系统设置",
         "officialSite": "官方主页",
+        "refresh": "刷新",
+        "refreshed": "已刷新",
         "theme": {
             "dark": "切换暗色模式",
             "light": "切换明亮模式"
@@ -26,6 +28,8 @@
         "listView": "列表模式",
         "noProfiles": "暂无配置，点击右上角按钮创建",
         "batchSelected": "已选择 {n} 个配置",
+        "selectAll": "全选",
+        "selectAllHint": "共 {n} 个配置，勾选后可批量启动、移动或清理缓存",
         "batchLaunching": "正在批量启动 {count} 个配置...",
         "deleteConfirm": {
             "title": "确认删除?",
@@ -41,7 +45,8 @@
             "hoursAgo": "{n}小时前",
             "daysAgo": "{n}天前",
             "cdpPort": "CDP 端口",
-            "forwardPort": "CDP 转发端口"
+            "forwardPort": "CDP 转发端口",
+            "size": "占用空间"
         },
         "actions": {
             "launch": "启动浏览器",
@@ -49,8 +54,23 @@
             "performance": "运行性能",
             "backup": "备份数据",
             "openDir": "查看目录",
+            "clearCache": "清理缓存",
+            "setTemplate": "设为模板配置",
+            "unsetTemplate": "取消模板配置",
             "repair": "修复配置 (解锁)",
             "delete": "删除配置"
+        },
+        "template": {
+            "badge": "模板"
+        },
+        "messages": {
+            "templateSet": "已设为模板配置，新建配置时可套用",
+            "templateUnset": "已取消模板配置",
+            "clearCacheTitle": "确认清理缓存?",
+            "clearCacheContent": "将删除该配置的浏览器缓存（页面缓存、Code Cache、组件缓存等），登录态与 Cookie 会保留。配置正在运行时无法清理。",
+            "clearCacheBatchContent": "将清理选中的 {count} 个配置的浏览器缓存（页面缓存、Code Cache、组件缓存等），登录态与 Cookie 会保留。正在运行的配置会被自动跳过。",
+            "cacheFreed": "已释放 {size}",
+            "cacheFreedPartial": "已释放 {size}，另有 {skipped} 个配置因正在运行被跳过"
         },
         "form": {
             "titleCreate": "新建浏览器配置",
@@ -72,7 +92,32 @@
             "debuggerModeTip": "开启后启动时添加 --remote-debugging-port，可用于自动化调试与性能监控",
             "debugPortConfig": "启动端口",
             "debugPortConfigPlaceholder": "不填则自动分配",
-            "debugPortConfigTip": "Chrome 远程调试端口 (CDP)，留空则自动分配可用端口"
+            "debugPortConfigTip": "Chrome 远程调试端口 (CDP)，留空则自动分配可用端口",
+            "workspace": "所属工作区",
+            "workspacePlaceholder": "选择工作区",
+            "template": "套用模板",
+            "templatePlaceholder": "不套用（空白配置）",
+            "templateTip": "在配置卡片的更多菜单里可把任意配置「设为模板配置」，之后新建时就能继承它的扩展与脚本",
+            "templateMode": "套用范围",
+            "templateModeExtensions": "仅扩展与脚本",
+            "templateModeFull": "完整克隆（含登录态）",
+            "launchArgs": "启动参数",
+            "launchArgsTip": "按配置下发 Chrome 命令行参数（代理、UA、窗口尺寸等），留空则不生效",
+            "proxy": "代理",
+            "proxyPlaceholder": "http://127.0.0.1:7890",
+            "language": "语言",
+            "languagePlaceholder": "zh-CN",
+            "windowSize": "窗口尺寸",
+            "windowSizePlaceholder": "1280,800",
+            "windowPosition": "窗口位置",
+            "windowPositionPlaceholder": "100,100",
+            "userAgent": "User-Agent",
+            "userAgentPlaceholder": "留空使用浏览器默认",
+            "extraArgs": "额外参数",
+            "extraArgsPlaceholder": "--disable-gpu --no-first-run",
+            "extraArgsTip": "按空格拆分成多个参数，会原样传给浏览器，请勿填危险参数",
+            "templateModeExtensionsTip": "只复制扩展本体、扩展设置、油猴脚本目录与 Preferences，不复制 Cookie 与站点数据",
+            "templateModeFullTip": "复制除缓存外的全部数据，登录态、Cookie、书签都会带过来（不再隔离）"
         }
     },
     "performance": {
@@ -120,5 +165,57 @@
             "restoring": "正在恢复...",
             "deleteConfirm": "确认要删除该备份吗？"
         }
+    },
+    "workspace": {
+        "title": "工作区",
+        "noWorkspaces": "暂无工作区",
+        "all": "全部配置",
+        "unassigned": "未分组",
+        "new": "新建工作区",
+        "edit": "编辑工作区",
+        "form": {
+            "titleCreate": "新建工作区",
+            "titleEdit": "编辑工作区",
+            "name": "工作区名称",
+            "namePlaceholder": "输入工作区名称 (必填)",
+            "icon": "图标",
+            "color": "主题色",
+            "description": "描述",
+            "descriptionPlaceholder": "可选，简单描述这个工作区的用途"
+        },
+        "actions": {
+            "launchAll": "启动本工作区",
+            "backupAll": "备份本工作区",
+            "backingProgress": "备份中 {current}/{total}",
+            "moveTo": "移动到工作区"
+        },
+        "deleteConfirm": {
+            "title": "确认删除工作区?",
+            "content": "删除后该工作区下的配置会移动到「未分组」，配置数据本身不会被删除。"
+        },
+        "messages": {
+            "emptyName": "请输入工作区名称",
+            "launching": "正在启动工作区中的 {count} 个配置...",
+            "nothingToLaunch": "当前没有需要启动的配置",
+            "backing": "正在备份工作区...",
+            "backupDone": "已备份 {count} 个配置",
+            "backupPartial": "备份完成：{success} 个成功，{failed} 个失败",
+            "noProfiles": "当前工作区暂无配置"
+        }
+    },
+    "settings": {
+        "title": "设置",
+        "migrateTip": "修改目录会自动搬迁已有数据。请确保所有配置已关闭，搬迁期间不要关闭应用。",
+        "dataDir": "配置数据目录",
+        "dataDirPlaceholder": "例如 D:\\SpaceShift\\profiles",
+        "backupDir": "备份目录",
+        "backupDirPlaceholder": "例如 D:\\SpaceShift\\Backups",
+        "appDataDir": "应用数据目录",
+        "appDataDirTip": "存放数据库与配置文件，体积很小，位置不可更改。",
+        "currentPath": "当前：{path}",
+        "backupRetention": "备份保留数量",
+        "backupRetentionTip": "每个配置最多保留最近 N 个备份，超出后自动删除最旧的；填 0 表示不限制",
+        "migrating": "正在搬迁 {done}/{total} 个配置目录...",
+        "saved": "设置已保存"
     }
 }
