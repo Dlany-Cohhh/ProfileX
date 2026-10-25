@@ -129,6 +129,7 @@ import { Copy } from 'lucide-vue-next';
 import type { Profile } from '../types';
 import { useProfileStore } from '../store/profile';
 import { formatSize } from '../utils/format';
+import { macaronColor } from '../utils/macaron';
 import { PROFILE_DRAG_TYPE, PROFILE_REORDER_TYPE } from '../utils/dnd';
 import ProfileCardMenu from './ProfileCardMenu.vue';
 
@@ -179,25 +180,15 @@ const formatDate = (dateStr: string) => {
 
 const isTemplate = computed(() => profileStore.templateIds.includes(props.profile.id));
 
-/** 无自定义图标时，用 id 哈希出一个稳定的色相，配合首字生成可区分的色块头像 */
-const avatarHue = computed(() => {
-  let hash = 0;
-  for (let i = 0; i < props.profile.id.length; i += 1) {
-    hash = (hash * 31 + props.profile.id.charCodeAt(i)) % 360;
-  }
-  return hash;
-});
+/** 无自定义图标时，按 id 取一个稳定的马卡龙色，配合首字生成可区分的色块头像 */
+const avatarColor = computed(() => macaronColor(props.profile.id));
 
 const avatarInitial = computed(() => (props.profile.name || '?').trim().slice(0, 1).toUpperCase());
 
 const avatarStyle = computed(() =>
   props.profile.icon_base64
     ? undefined
-    : {
-        background: `linear-gradient(135deg, hsl(${avatarHue.value} 65% 58%), hsl(${
-          (avatarHue.value + 40) % 360
-        } 65% 46%))`,
-      }
+    : { background: avatarColor.value.bg, color: avatarColor.value.fg }
 );
 
 /**
@@ -431,12 +422,11 @@ const handleLaunch = async () => {
   }
 }
 
-// 无自定义图标时的首字色块
+// 无自定义图标时的首字色块：底色是马卡龙浅色，首字用同色系深色（继承 profile-avatar 的 color）
 .avatar-initial {
   font-size: var(--text-xl);
   font-weight: var(--font-semibold);
-  color: #fff;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  color: inherit;
   user-select: none;
 }
 
