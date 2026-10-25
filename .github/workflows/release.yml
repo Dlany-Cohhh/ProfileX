@@ -50,8 +50,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: v__VERSION__
-          releaseName: "SpaceShift v__VERSION__"
-          releaseBody: "SpaceShift 跨平台正式版本发布（自动编译）。"
+          releaseName: "profilex v__VERSION__"
+          releaseBody: "profilex 跨平台正式版本发布（自动编译）。"
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}

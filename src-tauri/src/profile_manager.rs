@@ -11,9 +11,9 @@ use crate::db::{LaunchArgs, Profile, Workspace};
 
 /// 备份包内存放「软件配置」的目录。恢复浏览器数据时会被跳过，
 /// 免得把不属于浏览器的文件写进配置目录
-pub const BACKUP_META_FILE: &str = "_spaceshift/meta.json";
+pub const BACKUP_META_FILE: &str = "_profilex/meta.json";
 
-pub const BACKUP_META_FORMAT: &str = "spaceshift-profile-backup";
+pub const BACKUP_META_FORMAT: &str = "profilex-profile-backup";
 pub const BACKUP_META_VERSION: u32 = 1;
 
 /// 配置在软件里的设置：名字、图标、标签、端口、启动参数、模板标记等
@@ -46,7 +46,7 @@ pub struct WorkspaceMeta {
     pub description: Option<String>,
 }
 
-/// 整包元信息，写在备份包根目录的 _spaceshift/meta.json
+/// 整包元信息，写在备份包根目录的 _profilex/meta.json
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct BackupMeta {
@@ -562,7 +562,7 @@ impl ProfileManager {
             };
 
             // 软件配置不属于浏览器数据，不解压进配置目录
-            if file.name().starts_with("_spaceshift/") {
+            if file.name().starts_with("_profilex/") {
                 continue;
             }
 
@@ -691,7 +691,7 @@ mod tests {
     /// 备份包要带上软件配置，且这些配置不能被解压进浏览器数据目录
     #[test]
     fn backup_keeps_app_settings_and_restore_skips_them() {
-        let root = std::env::temp_dir().join(format!("spaceshift-meta-test-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("profilex-meta-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
 
         let profile_dir = root.join("profile");
@@ -719,12 +719,12 @@ mod tests {
         assert_eq!(read.workspace.as_ref().unwrap().name, "日常");
         assert_eq!(read.profile_id, "profile-1");
 
-        // 浏览器数据恢复，配置目录不出现 _spaceshift
+        // 浏览器数据恢复，配置目录不出现 _profilex
         let restored = root.join("restored");
         let restore = ProfileManager::restore_profile(&backup_path, &restored);
         assert!(restore.success, "{:?}", restore.error);
         assert!(restored.join("Default").join("Preferences").exists());
-        assert!(!restored.join("_spaceshift").exists());
+        assert!(!restored.join("_profilex").exists());
 
         let _ = fs::remove_dir_all(&root);
     }
@@ -732,7 +732,7 @@ mod tests {
     /// 旧版备份包没有 meta：读出来是 None，配置名靠文件名推断
     #[test]
     fn legacy_backup_has_no_meta() {
-        let root = std::env::temp_dir().join(format!("spaceshift-legacy-test-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("profilex-legacy-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
 
         let profile_dir = root.join("profile");

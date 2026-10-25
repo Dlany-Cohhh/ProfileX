@@ -1,74 +1,119 @@
-# SpaceShift
+# ProfileX
 
-SpaceShift is a modern, high-performance, cross-platform multi-profile browser management tool built with **Rust**, **Tauri v2**, and **Vue 3**. It allows you to seamlessly create, manage, and launch multiple isolated Google Chrome profiles on a single machine.
+> A multi-account browser environment manager — one profile, one isolated identity.
 
-[中文文档 (Chinese)](README.md)
+[![Version](https://img.shields.io/badge/version-1.0.0-2ea043)](https://github.com/Dlany-Cohhh/ProfileX/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows-0a84ff)](#download--install)
+[![Tauri](https://img.shields.io/badge/Tauri-v2-24c8db)](https://tauri.app)
+[![Vue](https://img.shields.io/badge/Vue-3-42b883)](https://vuejs.org)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-## ✨ Features
+English | [简体中文](README.md)
 
-- 🚀 **Hardware-Accelerated Core**: Built on Tauri v2 and Rust, offering an extremely low memory footprint compared to Electron-based alternatives.
-- 📦 **Total Data Isolation**: Each profile receives its own dedicated `User Data Directory`, ensuring complete separation of cookies, local storage, extensions, and cache.
-- 🌗 **Native Dark Mode Sync**: Flawless dark mode that instantly synchronizes the internal UI with the native OS window borders (Windows & macOS).
-- 📊 **Real-time Performance Metrics**: Connects dynamically via Chrome DevTools Protocol (CDP) to measure exact page load, DOM ready, and TCP/DNS timings for your profiles.
-- 🛠 **System-Aware Optimizations**: Automatically applies platform-specific memory and network optimization flags (e.g., PowerShell memory checks on Windows, `/proc/meminfo` on Linux) to prevent system hangs.
-- 🗄 **Backup & Restore**: Easily snapshot and restore your profile directories with a single click.
-- 🌐 **Internationalization**: Fully localized in English and Simplified Chinese out of the box.
-- ⚡ **Batch Operations**: Multi-select support to staggered-launch multiple profiles at once without spiking your CPU.
-- 📡 **CDP Forwarding**: Configure a dedicated "forwarding port" (listening on 0.0.0.0) to proxy remote Chrome DevTools Protocol traffic to the browser's local debug port, enabling LAN/WAN automation.
-- 🔌 **Extension Control**: Toggle `--disable-extensions` per profile to launch with or without browser extensions loaded (enabled by default for a clean environment).
-- 🐞 **Debugger Mode**: Optionally enable Chrome remote debugging with a configurable launch port and forward port, exposing the CDP endpoint for automation tools like Puppeteer/Playwright.
-- 🛡 **Smart Lock Release**: Built-in repair utility to clean up orphaned Chrome lockfiles (`SingletonLock`, `Parent.lock`) when browser processes crash abruptly.
+ProfileX is a desktop app built with **Rust + Tauri v2 + Vue 3** for managing dozens of isolated Chrome environments from one clean window. Every profile gets its own user-data directory, cookies, extensions and launch flags, so accounts never bleed into each other. All data stays in a local SQLite file — nothing is uploaded.
 
-## 📦 Tech Stack
+![Main window](docs/screenshots/01-main-grid.png)
 
-- **Frontend**: Vue 3 (Composition API), Vite, TypeScript, Element Plus, Pinia, Vue-i18n, SCSS.
-- **Backend / Core**: Rust, Tauri v2.
-- **System Integration**: `winreg` (Windows path resolving), custom CDP WebSockets (`tokio-tungstenite`), `sysinfo`.
+## Features
 
-## 🚀 Getting Started
+| Capability | Details |
+| --- | --- |
+| **Isolation** | Dedicated `--user-data-dir` per profile: cookies, cache, extensions and sessions are fully separate |
+| **Workspaces** | Group profiles in the sidebar (with icon and color); launch or back up a whole workspace in one click |
+| **Templates** | Save a tuned environment as a template; clone it as "extensions & scripts only" or "full copy with login state" |
+| **Batch actions** | Multi-select to launch, close, move, clear cache, back up or delete in bulk |
+| **Launch flags** | Launch port, CDP debug port, port forwarding, debugger mode, disable extensions, proxy, user agent, window size |
+| **Performance report** | Startup time recorded and split into process creation / DNS / DOM estimates, plus actionable suggestions |
+| **Backup & restore** | Zip a single profile or a whole workspace (metadata included) and import it on another machine; auto-prune to N copies |
+| **System tray** | Close to tray, launch at login, start favourite profiles right from the tray menu |
+| **Looks** | 8 accent colors + light/dark mode, custom avatar and icon color per profile |
+| **Bilingual UI** | Simplified Chinese / English, switched instantly |
 
-### Prerequisites
-- [Node.js](https://nodejs.org/) (v16+)
-- [Rust](https://rustup.rs/) (latest stable)
-- **Chrome/Chromium** installed on your system. SpaceShift will automatically scan common installation paths and registry entries to find it.
+## Screenshots
 
-### Installation & Development
+| Profile form | Performance report |
+| --- | --- |
+| ![Profile form](docs/screenshots/02-profile-form.png) | ![Performance](docs/screenshots/03-performance.png) |
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/yourusername/spaceshift.git
-   cd spaceshift
-   ```
+| Settings (directories / theme / window behaviour) |
+| --- |
+| ![Settings](docs/screenshots/04-settings.png) |
 
-2. Install frontend dependencies:
-   ```bash
-   yarn install
-   # or npm install / pnpm install
-   ```
+> Profile names and paths in the screenshots are sample data.
 
-3. Start the development server (runs Vite + Tauri backend):
-   ```bash
-   yarn tauri dev
-   ```
+## Download & install
 
-### Building for Production
+Grab the latest Windows build from [Releases](https://github.com/Dlany-Cohhh/ProfileX/releases):
 
-Compile a native executable for your current OS:
+- `ProfileX_1.0.0_x64-setup.exe` — NSIS installer (recommended)
+- `ProfileX_1.0.0_x64_en-US.msi` — MSI installer
+
+More details (SmartScreen warning, uninstall, data locations) in [docs/install.md](docs/install.md).
+
+**Requirements**: Windows 10 / 11 (x64) and Google Chrome installed (any Chromium-based browser can be pointed to manually in a profile).
+
+## Quick start
+
+1. Open ProfileX and click **New profile** in the top-right corner.
+2. Give it a name; tags, notes and icon color are optional. Leave the Chrome path empty to auto-detect.
+3. Hit the blue launch button on the card — the browser opens in its own isolated environment.
+4. Need another account? Create another profile, or clone an existing one as a template.
+5. Put long-lived profiles into a workspace, then launch the whole group from the sidebar.
+
+## How it works
+
+### Workspaces
+
+Profiles belong to at most one workspace; the rest live under "Ungrouped". Each workspace has an icon and color, plus two action buttons at the bottom of the sidebar to launch or back up everything inside it.
+
+### Templates
+
+Any profile can be marked as a template. When creating a profile you can pick one and choose:
+
+- **Extensions & scripts only** — copies extensions, bookmarks and similar static data with a fresh login state.
+- **Full copy** — copies cookies and login state too, giving you an independent duplicate of the same account.
+
+### Backups
+
+A backup is a zip archive containing the browser user data plus profile metadata (name, icon, tags, ports, launch flags, workspace). Importing it on another machine therefore restores both the environment and its settings. Backup directory and retention count are configurable (0 = unlimited).
+
+## Data & privacy
+
+- Profile database: `%APPDATA%\com.bujic.profilex\profiles.db`
+- Browser data: `%APPDATA%\com.bujic.profilex\profiles\` (relocatable in Settings)
+- Backups: `Documents\ProfileX\Backups\`
+- No telemetry, no analytics, no cloud sync. The only outbound request is the one you trigger yourself with "Test proxy".
+
+## Build from source
+
+Node.js 20+ and a stable Rust toolchain are required (MSVC build tools on Windows).
+
 ```bash
-yarn tauri build
+git clone https://github.com/Dlany-Cohhh/ProfileX.git
+cd ProfileX
+yarn install
+yarn tauri dev      # development
+yarn tauri build    # production, output in src-tauri/target/release/bundle/
 ```
-*(The compiled binaries will be generated in `src-tauri/target/release/bundle/`)*
 
-## 💡 Usage Highlights
+## Tech stack
 
-- **Creating a Profile**: Click "New Profile" to create an isolated environment. You can specify a custom Chrome path or let SpaceShift auto-detect it.
-- **Monitoring**: After launching a profile, click the "..." menu and select "Performance" to view real-time CDP timings for recent launches.
-- **Repair**: If a profile is stuck and won't launch, click "Repair (Unlock)" to wipe lingering Chromium lockfiles.
-- **Batch Launch**: Check multiple profile cards to trigger the batch operations toolbar, allowing you to launch several instances with built-in startup delays.
-- **Remote Automation**: In the profile creation/edit form, enable **Debugger Mode** and configure a **Launch Port** (Chrome's `--remote-debugging-port`) along with an optional **Forward Port** (listening on `0.0.0.0`). This allows you to connect automated tools like Puppeteer or Playwright from other machines on your network via the forward port.
-- **Extension Toggle**: In the profile form, use the **Disable Extensions** switch to control whether Chrome loads with extensions. Turn it off when you need your installed extensions active during a session.
+| Layer | Choice |
+| --- | --- |
+| Shell | Tauri v2 (Rust) |
+| Frontend | Vue 3 + TypeScript + Vite + Pinia |
+| UI | Element Plus with custom theme variables |
+| Storage | SQLite (rusqlite) + zip backups |
+| Browser control | Chrome DevTools Protocol |
 
-## 📝 License
+## Acknowledgements
 
-This project is open-sourced under the MIT License.
-Created by bujic.
+ProfileX is a **derivative work** based on [chao-eng/SpaceShift](https://github.com/chao-eng/SpaceShift).
+
+Huge thanks to [@chao-eng](https://github.com/chao-eng) for open-sourcing SpaceShift — its architecture, profile isolation model and backup format are the starting point of this project. ProfileX rebuilds the UI and interactions on top of it, unifies the branding, and adds list filtering, performance reporting, theming and workspace improvements.
+
+Thanks as well to the open-source projects this app stands on: Tauri, Vue, Element Plus, rusqlite, zip-rs, walkdir and chrono.
+
+## License
+
+[MIT](LICENSE) © 2026 bujic

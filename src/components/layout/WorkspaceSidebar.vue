@@ -157,8 +157,8 @@ const editingWorkspace = ref<Workspace | null>(null);
 /** 当前被拖拽悬停的工作区 id，用于拖放高亮 */
 const dragOverId = ref<string | null>(null);
 
-const SIDEBAR_COLLAPSED_KEY = 'spaceshift.sidebar.collapsed';
-const SIDEBAR_WIDTH_KEY = 'spaceshift.sidebar.width';
+const SIDEBAR_COLLAPSED_KEY = 'profilex.sidebar.collapsed';
+const SIDEBAR_WIDTH_KEY = 'profilex.sidebar.width';
 const MIN_SIDEBAR_WIDTH = 180;
 const MAX_SIDEBAR_WIDTH = 420;
 const COLLAPSED_SIDEBAR_WIDTH = 56;

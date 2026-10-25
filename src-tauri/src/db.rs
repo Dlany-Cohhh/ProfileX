@@ -939,7 +939,7 @@ mod tests {
 
     /// 在临时目录建库并跑完迁移，尽量贴近真实环境
     fn temp_db(tag: &str) -> (PathBuf, Database) {
-        let dir = std::env::temp_dir().join(format!("spaceshift-db-{}-{}", tag, std::process::id()));
+        let dir = std::env::temp_dir().join(format!("profilex-db-{}-{}", tag, std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
 
@@ -981,7 +981,7 @@ mod tests {
         db.import_profile(
             "p-1",
             "导入的配置",
-            "D:/SpaceShift/profiles/导入的配置",
+            "D:/profilex/profiles/导入的配置",
             Some("C:/chrome.exe"),
             Some("https://example.com"),
             Some("data:image/png;base64,AAA"),
