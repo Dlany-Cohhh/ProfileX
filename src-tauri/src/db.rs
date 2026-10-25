@@ -60,6 +60,7 @@ fn profile_from_row(row: &Row) -> SqliteResult<Profile> {
         icon_path: row.get("icon_path")?,
         icon_base64: row.get("icon_base64")?,
         icon_color: row.get("icon_color")?,
+        notes: row.get("notes")?,
         tags: row.get("tags")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
@@ -92,6 +93,8 @@ pub struct Profile {
     /// 卡片色块的自定义颜色（马卡龙色），为空时按 id 自动取色
     pub icon_color: Option<String>,
     pub tags: Option<String>,
+    /// 备注：账号、平台、负责人这类随手记的信息
+    pub notes: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub last_opened_at: Option<String>,
@@ -252,6 +255,9 @@ impl Database {
         let _ = self
             .conn
             .execute("ALTER TABLE profiles ADD COLUMN icon_color TEXT", []);
+        let _ = self
+            .conn
+            .execute("ALTER TABLE profiles ADD COLUMN notes TEXT", []);
 
         self.backfill_sort_order()?;
 
@@ -372,7 +378,7 @@ impl Database {
         Ok(())
     }
 
-    pub fn create_profile(&self, name: &str, data_dir_path: &str, chrome_path: Option<&str>, homepage: Option<&str>, icon_base64: Option<&str>, icon_color: Option<&str>, tags: Option<&str>, forward_port: Option<u16>, disable_extensions: bool, debugger_mode: bool, debug_port_config: Option<u16>, workspace_id: Option<&str>, launch_args: Option<&LaunchArgs>) -> SqliteResult<Profile> {
+    pub fn create_profile(&self, name: &str, data_dir_path: &str, chrome_path: Option<&str>, homepage: Option<&str>, icon_base64: Option<&str>, icon_color: Option<&str>, tags: Option<&str>, notes: Option<&str>, forward_port: Option<u16>, disable_extensions: bool, debugger_mode: bool, debug_port_config: Option<u16>, workspace_id: Option<&str>, launch_args: Option<&LaunchArgs>) -> SqliteResult<Profile> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
 
@@ -389,11 +395,11 @@ impl Database {
             .and_then(|args| serde_json::to_string(args).ok());
 
         self.conn.execute(
-            "INSERT INTO profiles (id, name, data_dir_path, chrome_path, homepage, icon_base64, icon_color, tags, forward_port, disable_extensions, debugger_mode, debug_port_config, workspace_id, sort_order, launch_args, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+            "INSERT INTO profiles (id, name, data_dir_path, chrome_path, homepage, icon_base64, icon_color, notes, tags, forward_port, disable_extensions, debugger_mode, debug_port_config, workspace_id, sort_order, launch_args, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
             // 超过 16 个参数，元组不再实现 Params，改用 params!
             rusqlite::params![
-                &id, name, data_dir_path, chrome_path, homepage, icon_base64, icon_color, tags,
+                &id, name, data_dir_path, chrome_path, homepage, icon_base64, icon_color, notes, tags,
                 forward_port.map(|v| v as i32),
                 if disable_extensions { 1 } else { 0 },
                 if debugger_mode { 1 } else { 0 },
@@ -411,6 +417,7 @@ impl Database {
             icon_path: None,
             icon_base64: icon_base64.map(|s| s.to_string()),
             icon_color: icon_color.map(|s| s.to_string()),
+            notes: notes.map(|s| s.to_string()),
             tags: tags.map(|s| s.to_string()),
             created_at: now.clone(),
             updated_at: now,
@@ -441,6 +448,7 @@ impl Database {
         icon_base64: Option<&str>,
         icon_color: Option<&str>,
         tags: Option<&str>,
+        notes: Option<&str>,
         forward_port: Option<u16>,
         disable_extensions: bool,
         debugger_mode: bool,
@@ -454,11 +462,11 @@ impl Database {
         let launch_args_json = launch_args.and_then(|args| serde_json::to_string(args).ok());
 
         self.conn.execute(
-            "INSERT INTO profiles (id, name, data_dir_path, chrome_path, homepage, icon_base64, icon_color, tags, forward_port, disable_extensions, debugger_mode, debug_port_config, workspace_id, sort_order, launch_args, is_template, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+            "INSERT INTO profiles (id, name, data_dir_path, chrome_path, homepage, icon_base64, icon_color, notes, tags, forward_port, disable_extensions, debugger_mode, debug_port_config, workspace_id, sort_order, launch_args, is_template, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
             // 超过 16 个参数，元组不再实现 Params，改用 params!
             rusqlite::params![
-                id, name, data_dir_path, chrome_path, homepage, icon_base64, icon_color, tags,
+                id, name, data_dir_path, chrome_path, homepage, icon_base64, icon_color, notes, tags,
                 forward_port.map(|v| v as i32),
                 if disable_extensions { 1 } else { 0 },
                 if debugger_mode { 1 } else { 0 },
@@ -478,6 +486,7 @@ impl Database {
             icon_path: None,
             icon_base64: icon_base64.map(|s| s.to_string()),
             icon_color: icon_color.map(|s| s.to_string()),
+            notes: notes.map(|s| s.to_string()),
             tags: tags.map(|s| s.to_string()),
             created_at: now.clone(),
             updated_at: now,
@@ -534,7 +543,7 @@ impl Database {
 
     pub fn get_all_profiles(&self) -> SqliteResult<Vec<Profile>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, data_dir_path, chrome_path, homepage, icon_path, icon_base64, icon_color, tags,
+            "SELECT id, name, data_dir_path, chrome_path, homepage, icon_path, icon_base64, icon_color, notes, tags,
                     created_at, updated_at, last_opened_at, is_running, pid, debug_port, forward_port, disable_extensions, debugger_mode, debug_port_config, workspace_id, launch_args, is_template, sort_order
              FROM profiles ORDER BY sort_order ASC, updated_at DESC"
         )?;
@@ -546,7 +555,7 @@ impl Database {
 
     pub fn get_profile_by_id(&self, id: &str) -> SqliteResult<Option<Profile>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, data_dir_path, chrome_path, homepage, icon_path, icon_base64, icon_color, tags,
+            "SELECT id, name, data_dir_path, chrome_path, homepage, icon_path, icon_base64, icon_color, notes, tags,
                     created_at, updated_at, last_opened_at, is_running, pid, debug_port, forward_port, disable_extensions, debugger_mode, debug_port_config, workspace_id, launch_args, is_template, sort_order
              FROM profiles WHERE id = ?1"
         )?;
@@ -556,7 +565,7 @@ impl Database {
         rows.next().transpose()
     }
 
-    pub fn update_profile(&self, id: &str, name: Option<&str>, chrome_path: Option<&str>, homepage: Option<&str>, icon_base64: Option<&str>, icon_color: Option<&str>, tags: Option<&str>, forward_port: Option<u16>, disable_extensions: Option<bool>, debugger_mode: Option<bool>, debug_port_config: Option<u16>, launch_args: Option<&LaunchArgs>) -> SqliteResult<bool> {
+    pub fn update_profile(&self, id: &str, name: Option<&str>, chrome_path: Option<&str>, homepage: Option<&str>, icon_base64: Option<&str>, icon_color: Option<&str>, tags: Option<&str>, notes: Option<&str>, forward_port: Option<u16>, disable_extensions: Option<bool>, debugger_mode: Option<bool>, debug_port_config: Option<u16>, launch_args: Option<&LaunchArgs>) -> SqliteResult<bool> {
         let now = Utc::now().to_rfc3339();
 
         if let Some(name) = name {
@@ -599,6 +608,14 @@ impl Database {
             self.conn.execute(
                 "UPDATE profiles SET tags = ?1, updated_at = ?2 WHERE id = ?3",
                 (tags, &now, id),
+            )?;
+        }
+
+        // 传空串表示清空备注
+        if let Some(notes) = notes {
+            self.conn.execute(
+                "UPDATE profiles SET notes = ?1, updated_at = ?2 WHERE id = ?3",
+                (notes, &now, id),
             )?;
         }
 
@@ -714,7 +731,7 @@ impl Database {
     pub fn search_profiles(&self, query: &str) -> SqliteResult<Vec<Profile>> {
         let search_pattern = format!("%{}%", query);
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, data_dir_path, chrome_path, homepage, icon_path, icon_base64, icon_color, tags,
+            "SELECT id, name, data_dir_path, chrome_path, homepage, icon_path, icon_base64, icon_color, notes, tags,
                     created_at, updated_at, last_opened_at, is_running, pid, debug_port, forward_port, disable_extensions, debugger_mode, debug_port_config, workspace_id, launch_args, is_template, sort_order
              FROM profiles
              WHERE name LIKE ?1 OR tags LIKE ?1
@@ -729,7 +746,7 @@ impl Database {
     pub fn get_profiles_by_tag(&self, tag: &str) -> SqliteResult<Vec<Profile>> {
         let search_pattern = format!("%{}%", tag);
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, data_dir_path, chrome_path, homepage, icon_path, icon_base64, icon_color, tags,
+            "SELECT id, name, data_dir_path, chrome_path, homepage, icon_path, icon_base64, icon_color, notes, tags,
                     created_at, updated_at, last_opened_at, is_running, pid, debug_port, forward_port, disable_extensions, debugger_mode, debug_port_config, workspace_id, launch_args, is_template, sort_order
              FROM profiles
              WHERE tags LIKE ?1
@@ -830,7 +847,7 @@ impl Database {
 
     pub fn get_profiles_by_workspace(&self, workspace_id: &str) -> SqliteResult<Vec<Profile>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, data_dir_path, chrome_path, homepage, icon_path, icon_base64, icon_color, tags,
+            "SELECT id, name, data_dir_path, chrome_path, homepage, icon_path, icon_base64, icon_color, notes, tags,
                     created_at, updated_at, last_opened_at, is_running, pid, debug_port, forward_port, disable_extensions, debugger_mode, debug_port_config, workspace_id, launch_args, is_template, sort_order
              FROM profiles WHERE workspace_id = ?1 ORDER BY sort_order ASC, updated_at DESC"
         )?;
@@ -970,6 +987,7 @@ mod tests {
             Some("data:image/png;base64,AAA"),
             Some("#A8E3D0"),
             Some("工作,测试"),
+            Some("导入时带上备注"),
             Some(9222),
             true,
             true,
@@ -992,6 +1010,7 @@ mod tests {
         assert_eq!(p.icon_base64.as_deref(), Some("data:image/png;base64,AAA"));
         assert_eq!(p.icon_color.as_deref(), Some("#A8E3D0"));
         assert_eq!(p.tags.as_deref(), Some("工作,测试"));
+        assert_eq!(p.notes.as_deref(), Some("导入时带上备注"));
         assert_eq!(p.forward_port, Some(9222));
         assert!(p.disable_extensions);
         assert!(p.debugger_mode);

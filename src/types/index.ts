@@ -19,6 +19,8 @@ export interface Profile {
   /** 卡片色块的自定义颜色，为空时按 id 自动取色 */
   icon_color?: string;
   tags?: string;
+  /** 备注：账号、平台、负责人这类随手记的信息 */
+  notes?: string;
   created_at: string;
   updated_at: string;
   last_opened_at?: string;
@@ -75,6 +77,24 @@ export interface ChromeLaunchResult {
   pid?: number;
   debug_port?: number;
   error?: string;
+}
+
+/** 代理自检结果：出口 IP + 耗时，失败时给具体原因 */
+export interface ProxyTestResult {
+  ok: boolean;
+  ip?: string;
+  error?: string;
+  elapsed_ms: number;
+}
+
+export interface PortStatus {
+  port: number;
+  in_use: boolean;
+}
+
+export interface TraySettings {
+  close_to_tray: boolean;
+  autostart: boolean;
 }
 
 export interface BackupResult {

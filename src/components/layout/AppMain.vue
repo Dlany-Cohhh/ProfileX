@@ -39,6 +39,69 @@
         </el-checkbox>
         <span class="toolbar-hint">{{ $t('main.selectAllHint', { n: visibleIds.length }) }}</span>
 
+        <!-- 排序 / 筛选单独一行，避免和上面的工具栏挤在一起 -->
+        <div class="filter-row">
+          <div class="filter-group">
+            <el-select v-model="profileStore.sortBy" class="filter-select" size="small">
+              <el-option
+                v-for="opt in sortOptions"
+                :key="opt.value"
+                :label="opt.label"
+                :value="opt.value"
+              />
+            </el-select>
+
+            <!-- 手动顺序下没有升降序的概念，直接不显示 -->
+            <el-tooltip
+              v-if="profileStore.sortBy !== 'custom'"
+              :content="
+                profileStore.sortDir === 'asc' ? $t('main.sortAsc') : $t('main.sortDesc')
+              "
+              placement="bottom"
+              :show-after="300"
+            >
+              <button class="sort-dir-btn" @click="toggleSortDir">
+                <ArrowUp :size="14" :stroke-width="2" v-if="profileStore.sortDir === 'asc'" />
+                <ArrowDown :size="14" :stroke-width="2" v-else />
+              </button>
+            </el-tooltip>
+
+            <el-select v-model="profileStore.statusFilter" class="filter-select" size="small">
+              <el-option
+                v-for="opt in statusOptions"
+                :key="opt.value"
+                :label="opt.label"
+                :value="opt.value"
+              />
+            </el-select>
+
+            <el-select
+              v-model="profileStore.tagFilter"
+              class="filter-select"
+              size="small"
+              clearable
+              :placeholder="$t('main.filterTag')"
+            >
+              <el-option v-for="tag in profileStore.existingTags" :key="tag" :label="tag" :value="tag" />
+            </el-select>
+
+            <span v-if="profileStore.sortBy === 'custom'" class="filter-hint">
+              {{ $t('main.sortCustomHint') }}
+            </span>
+          </div>
+
+          <el-button
+            v-if="profileStore.runningCount > 0"
+            class="close-all-btn"
+            plain
+            :loading="closingAll"
+            @click="handleCloseAll"
+          >
+            <el-icon><SwitchButton /></el-icon>
+            {{ $t('main.closeAll', { n: profileStore.runningCount }) }}
+          </el-button>
+        </div>
+
         <!-- 视图切换放在导入备份左侧，跟列表内容属于同一层 -->
         <div class="view-toggle">
           <el-tooltip :content="$t('main.gridView')" placement="bottom" :show-after="300">
@@ -119,6 +182,11 @@
             {{ $t('profile.actions.launch') }}
           </el-button>
 
+          <el-button plain :loading="closingBatch" @click="handleBatchClose">
+            <el-icon v-if="!closingBatch"><SwitchButton /></el-icon>
+            {{ $t('profile.actions.close') }}
+          </el-button>
+
           <el-dropdown trigger="click" @command="handleBatchMove">
             <el-button plain>
               <el-icon><Folder /></el-icon>
@@ -160,8 +228,8 @@ import { useWorkspaceStore } from '../../store/workspace';
 import ProfileCard from '../ProfileCard.vue';
 import { api } from '../../api';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { VideoPlay, Brush, Folder } from '@element-plus/icons-vue';
-import { Import, LayoutGrid, List, Plus } from 'lucide-vue-next';
+import { VideoPlay, Brush, Folder, SwitchButton } from '@element-plus/icons-vue';
+import { Import, LayoutGrid, List, Plus, ArrowUp, ArrowDown } from 'lucide-vue-next';
 import { open } from '@tauri-apps/plugin-dialog';
 import { formatSize } from '../../utils/format';
 import { PROFILE_REORDER_TYPE } from '../../utils/dnd';
@@ -234,6 +302,52 @@ const partiallySelected = computed(
   () => profileStore.selectedIds.size > 0 && !allSelected.value
 );
 
+const sortOptions = computed(() => [
+  { value: 'custom', label: t('main.sortCustom') },
+  { value: 'name', label: t('main.sortName') },
+  { value: 'created', label: t('main.sortCreated') },
+  { value: 'opened', label: t('main.sortOpened') },
+  { value: 'size', label: t('main.sortSize') },
+]);
+
+const statusOptions = computed(() => [
+  { value: 'all', label: t('main.filterAll') },
+  { value: 'running', label: t('main.filterRunning') },
+  { value: 'stopped', label: t('main.filterStopped') },
+]);
+
+const toggleSortDir = () => {
+  profileStore.sortDir = profileStore.sortDir === 'asc' ? 'desc' : 'asc';
+};
+
+const closingAll = ref(false);
+
+const handleCloseAll = async () => {
+  closingAll.value = true;
+
+  try {
+    await profileStore.handleCloseAll();
+  } finally {
+    closingAll.value = false;
+  }
+};
+
+const closingBatch = ref(false);
+
+const handleBatchClose = async () => {
+  closingBatch.value = true;
+
+  try {
+    await profileStore.handleBatchClose();
+    ElMessage.success(t('common.success'));
+  } catch (error) {
+    ElMessage.error(t('common.error'));
+    console.error(error);
+  } finally {
+    closingBatch.value = false;
+  }
+};
+
 /** 工作区颜色表，卡片左侧色条用它标识归属 */
 const colorOf = (profile: Profile) =>
   profile.workspace_id
@@ -245,14 +359,19 @@ const gridRef = ref<HTMLElement | null>(null);
 const dropIndex = ref<number | null>(null);
 const draggingId = ref<string | null>(null);
 
+/** 非手动顺序下拖拽排序没有意义（排完会被排序规则立刻覆盖），直接不启用 */
+const canReorder = computed(() => profileStore.sortBy === 'custom');
+
 const onDragStart = (event: DragEvent) => {
+  if (!canReorder.value) return;
+
   draggingId.value = event.dataTransfer?.getData(PROFILE_REORDER_TYPE) || null;
 };
 
 /** 按阅读顺序判断指针落在哪个卡片之前 */
 const onDragOver = (event: DragEvent) => {
   const container = gridRef.value;
-  if (!container) return;
+  if (!container || !canReorder.value) return;
 
   const cards = Array.from(container.querySelectorAll('.profile-card')) as HTMLElement[];
 
@@ -290,6 +409,7 @@ const onDrop = async (event: DragEvent) => {
   dropIndex.value = null;
   draggingId.value = null;
 
+  if (!canReorder.value) return;
   if (!id || index === null) return;
 
   const visible = visibleIds.value;
@@ -509,6 +629,64 @@ const handleDelete = async (profile: Profile) => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+// 排序 / 筛选：单独一行，左边筛选右边「全部关闭」
+.filter-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.filter-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.filter-select {
+  width: 122px;
+  flex: 0 0 auto;
+}
+
+.sort-dir-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-medium);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+
+  &:hover {
+    border-color: var(--primary-400);
+    color: var(--primary-600);
+    background: var(--primary-50);
+  }
+}
+
+.filter-hint {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.close-all-btn {
+  margin-left: auto;
+  color: var(--danger-600);
+  border-color: var(--danger-200);
+
+  &:hover {
+    background: var(--danger-50);
+    border-color: var(--danger-300);
+    color: var(--danger-700);
+  }
 }
 
 // 视图切换：靠右贴住导入按钮，和它算一组

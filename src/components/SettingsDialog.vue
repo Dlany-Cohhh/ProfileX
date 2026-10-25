@@ -58,6 +58,18 @@
           <div class="form-tip">{{ $t('settings.accentTip') }}</div>
         </el-form-item>
 
+        <el-form-item :label="$t('settings.behavior')">
+          <div class="switch-row">
+            <el-switch v-model="closeToTray" @change="saveTraySettings" />
+            <span class="switch-label">{{ $t('settings.closeToTray') }}</span>
+          </div>
+          <div class="switch-row">
+            <el-switch v-model="autostart" @change="saveTraySettings" />
+            <span class="switch-label">{{ $t('settings.autostart') }}</span>
+          </div>
+          <div class="form-tip">{{ $t('settings.trayTip') }}</div>
+        </el-form-item>
+
         <div v-if="migrating" class="migrate-progress">
           <el-progress :percentage="progressPercent" :stroke-width="14" striped striped-flow />
           <div class="form-tip">
@@ -163,9 +175,37 @@ const loadPaths = async () => {
 watch(
   () => props.modelValue,
   (visible) => {
-    if (visible) loadPaths();
+    if (visible) {
+      loadPaths();
+      loadTraySettings();
+    }
   }
 );
+
+/** 托盘与开机自启：改动即时生效，不走「保存」按钮 */
+const closeToTray = ref(true);
+const autostart = ref(false);
+
+const loadTraySettings = async () => {
+  try {
+    const settings = await api.getTraySettings();
+    closeToTray.value = settings.close_to_tray;
+    autostart.value = settings.autostart;
+  } catch (error) {
+    console.error(error);
+  }
+};
+
+const saveTraySettings = async () => {
+  try {
+    const settings = await api.setTraySettings(closeToTray.value, autostart.value);
+    closeToTray.value = settings.close_to_tray;
+    autostart.value = settings.autostart;
+  } catch (error) {
+    ElMessage.error(t('common.error'));
+    console.error(error);
+  }
+};
 
 const handleOpen = async (path: string) => {
   try {
@@ -292,6 +332,18 @@ const handleSave = async () => {
 
 .accent-custom {
   margin-left: var(--space-1);
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.switch-label {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
 }
 
 .form-tip {

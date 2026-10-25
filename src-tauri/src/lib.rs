@@ -2,6 +2,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::menu::MenuBuilder;
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri_plugin_autostart::ManagerExt;
 
 mod db;
 mod chrome;
@@ -39,6 +42,8 @@ struct AppConfig {
     backup_retention: Option<usize>,
     /// 窗口几何记忆
     window: Option<WindowState>,
+    /// 点关闭时只藏窗口、进程留给托盘（默认开）
+    close_to_tray: Option<bool>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Default, Clone, Copy)]
@@ -265,6 +270,7 @@ fn create_profile(
     icon_base64: Option<String>,
     icon_color: Option<String>,
     tags: Option<String>,
+    notes: Option<String>,
     forward_port: Option<u16>,
     disable_extensions: Option<bool>,
     debugger_mode: Option<bool>,
@@ -325,7 +331,7 @@ fn create_profile(
     };
 
     let db = state.db.lock().map_err(|e| AppError::Other(e.to_string()))?;
-    Ok(db.create_profile(&name, &profile_dir.to_string_lossy(), chrome_path.as_deref(), homepage.as_deref(), icon_base64.as_deref(), icon_color.as_deref(), tags.as_deref(), forward_port, disable_extensions, debugger_mode.unwrap_or(true), debug_port_config, workspace_id.as_deref(), launch_args.as_ref())?)
+    Ok(db.create_profile(&name, &profile_dir.to_string_lossy(), chrome_path.as_deref(), homepage.as_deref(), icon_base64.as_deref(), icon_color.as_deref(), tags.as_deref(), notes.as_deref(), forward_port, disable_extensions, debugger_mode.unwrap_or(true), debug_port_config, workspace_id.as_deref(), launch_args.as_ref())?)
 }
 
 #[tauri::command]
@@ -353,6 +359,7 @@ fn update_profile(
     icon_base64: Option<String>,
     icon_color: Option<String>,
     tags: Option<String>,
+    notes: Option<String>,
     forward_port: Option<u16>,
     disable_extensions: Option<bool>,
     debugger_mode: Option<bool>,
@@ -361,7 +368,7 @@ fn update_profile(
     state: State<AppState>,
 ) -> AppResult<bool> {
     let db = state.db.lock().map_err(|e| AppError::Other(e.to_string()))?;
-    Ok(db.update_profile(&id, name.as_deref(), chrome_path.as_deref(), homepage.as_deref(), icon_base64.as_deref(), icon_color.as_deref(), tags.as_deref(), forward_port, disable_extensions, debugger_mode, debug_port_config, launch_args.as_ref())?)
+    Ok(db.update_profile(&id, name.as_deref(), chrome_path.as_deref(), homepage.as_deref(), icon_base64.as_deref(), icon_color.as_deref(), tags.as_deref(), notes.as_deref(), forward_port, disable_extensions, debugger_mode, debug_port_config, launch_args.as_ref())?)
 }
 
 /// 批量移动到同一工作区：一次调用完成，避免前端逐个往返
@@ -415,6 +422,59 @@ fn launch_chrome(
     } else {
         None
     };
+
+    // 启动前先排查最常见的两类失败：Chrome 找不到、端口被占用。
+    // 否则只能等 Chrome 自己静默失败，前端拿到的就是一个笼统的错误
+    if let Some(path) = profile.chrome_path.as_deref() {
+        if !path.is_empty() && !Path::new(path).exists() {
+            return Ok(ChromeLaunchResult {
+                success: false,
+                pid: None,
+                debug_port,
+                error: Some(format!("找不到 Chrome：{}", path)),
+                spawn_duration_ms: 0,
+            });
+        }
+    } else if state.chrome_manager.find_chrome_executable().is_none() {
+        return Ok(ChromeLaunchResult {
+            success: false,
+            pid: None,
+            debug_port,
+            error: Some("没有找到 Chrome，请在配置里指定 Chrome 路径".to_string()),
+            spawn_duration_ms: 0,
+        });
+    }
+
+    // 已经在跑的配置不再查端口：那种情况下 Chrome 只是往已有实例开个新窗口，
+    // 端口本来就被自己占着，这里报「被占用」会误伤
+    if !profile.is_running {
+        if let Some(port) = debug_port {
+            if is_port_in_use(port) {
+                return Ok(ChromeLaunchResult {
+                    success: false,
+                    pid: None,
+                    debug_port: Some(port),
+                    error: Some(format!(
+                        "CDP 端口 {} 已被占用，请换一个端口或改用自动分配",
+                        port
+                    )),
+                    spawn_duration_ms: 0,
+                });
+            }
+        }
+
+        if let Some(port) = profile.forward_port {
+            if is_port_in_use(port) {
+                return Ok(ChromeLaunchResult {
+                    success: false,
+                    pid: None,
+                    debug_port,
+                    error: Some(format!("转发端口 {} 已被占用，请换一个端口", port)),
+                    spawn_duration_ms: 0,
+                });
+            }
+        }
+    }
 
     // Use the provided URL if available, otherwise use the profile's homepage
     let launch_url = url.as_deref().or(profile.homepage.as_deref());
@@ -671,6 +731,7 @@ async fn import_profile_backup(
             meta_profile.as_ref().and_then(|p| p.icon_base64.as_deref()),
             meta_profile.as_ref().and_then(|p| p.icon_color.as_deref()),
             meta_profile.as_ref().and_then(|p| p.tags.as_deref()),
+            meta_profile.as_ref().and_then(|p| p.notes.as_deref()),
             meta_profile.as_ref().and_then(|p| p.forward_port),
             meta_profile.as_ref().map(|p| p.disable_extensions).unwrap_or(false),
             meta_profile.as_ref().map(|p| p.debugger_mode).unwrap_or(true),
@@ -891,6 +952,225 @@ fn set_backup_retention(app_handle: AppHandle, keep: usize, state: State<AppStat
     get_paths(app_handle)
 }
 
+/// 关掉一个配置对应的浏览器进程并清掉锁文件（不碰数据库）
+fn kill_profile(manager: &ChromeManager, pid: Option<i32>, data_dir: &str) {
+    let profile_dir = PathBuf::from(data_dir);
+
+    match pid {
+        Some(pid) if pid > 0 => {
+            let _ = manager.close_browser(pid as u32, Some(&profile_dir));
+        }
+        // 没有 pid（比如软件重启过，pid 属于上个进程）至少把残留锁清掉
+        _ => {
+            let _ = manager.unlock_profile(&profile_dir);
+        }
+    }
+}
+
+#[tauri::command]
+fn close_profile(id: String, state: State<AppState>) -> AppResult<bool> {
+    let db = state.db.lock().map_err(|e| AppError::Other(e.to_string()))?;
+
+    let Some(profile) = db.get_profile_by_id(&id)? else {
+        return Ok(false);
+    };
+
+    kill_profile(&state.chrome_manager, profile.pid, &profile.data_dir_path);
+    db.update_profile_status(&id, false, None, None)?;
+
+    Ok(true)
+}
+
+/// 一键关闭所有正在运行的配置，返回实际处理的条数。
+/// 关进程要花几秒，所以先把名单取出来再放锁，避免把数据库锁住那么久
+#[tauri::command]
+fn close_all_profiles(state: State<AppState>) -> AppResult<usize> {
+    let targets: Vec<(String, Option<i32>, String)> = {
+        let db = state.db.lock().map_err(|e| AppError::Other(e.to_string()))?;
+
+        db.get_all_profiles()?
+            .into_iter()
+            .filter(|p| p.is_running || p.pid.is_some())
+            .map(|p| (p.id, p.pid, p.data_dir_path))
+            .collect()
+    };
+
+    let mut closed = 0;
+
+    for (id, pid, data_dir) in targets {
+        kill_profile(&state.chrome_manager, pid, &data_dir);
+
+        let db = state.db.lock().map_err(|e| AppError::Other(e.to_string()))?;
+        db.update_profile_status(&id, false, None, None)?;
+
+        closed += 1;
+    }
+
+    Ok(closed)
+}
+
+#[derive(serde::Serialize)]
+struct ProxyTestResult {
+    ok: bool,
+    /// 代理生效时看到的出口 IP
+    ip: Option<String>,
+    error: Option<String>,
+    elapsed_ms: u64,
+}
+
+/// 代理连通性自检：按配置里填的代理发一次请求，把出口 IP 返回给前端。
+/// 填错的代理在这里就能发现，不用等 Chrome 起来才发现连不上
+#[tauri::command]
+async fn test_proxy(proxy: String) -> AppResult<ProxyTestResult> {
+    let spec = proxy.trim();
+
+    let mut builder = reqwest::Client::builder().timeout(Duration::from_secs(12));
+
+    if spec.is_empty() {
+        // 不填代理就是直连，测出来的是本机出口 IP
+        builder = builder.no_proxy();
+    } else {
+        match reqwest::Proxy::all(spec) {
+            Ok(p) => builder = builder.proxy(p),
+            Err(e) => {
+                return Ok(ProxyTestResult {
+                    ok: false,
+                    ip: None,
+                    error: Some(format!("代理地址无法解析：{}", e)),
+                    elapsed_ms: 0,
+                });
+            }
+        }
+    }
+
+    let client = match builder.build() {
+        Ok(c) => c,
+        Err(e) => {
+            return Ok(ProxyTestResult {
+                ok: false,
+                ip: None,
+                error: Some(format!("请求客户端创建失败：{}", e)),
+                elapsed_ms: 0,
+            });
+        }
+    };
+
+    let start = std::time::Instant::now();
+
+    match client.get("https://api.ipify.org?format=json").send().await {
+        Ok(resp) => {
+            let elapsed_ms = start.elapsed().as_millis() as u64;
+
+            match resp.json::<serde_json::Value>().await {
+                Ok(json) => {
+                    let ip = json
+                        .get("ip")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    let ok = ip.is_some();
+
+                    Ok(ProxyTestResult {
+                        ok,
+                        ip,
+                        error: if ok {
+                            None
+                        } else {
+                            Some("响应里没有拿到 IP".to_string())
+                        },
+                        elapsed_ms,
+                    })
+                }
+                Err(e) => Ok(ProxyTestResult {
+                    ok: false,
+                    ip: None,
+                    error: Some(format!("响应解析失败：{}", e)),
+                    elapsed_ms,
+                }),
+            }
+        }
+        Err(e) => Ok(ProxyTestResult {
+            ok: false,
+            ip: None,
+            error: Some(format!("请求失败：{}", e)),
+            elapsed_ms: start.elapsed().as_millis() as u64,
+        }),
+    }
+}
+
+/// 端口是否被占用。拉起一个监听再立刻丢掉，拿得到就是没人用
+fn is_port_in_use(port: u16) -> bool {
+    std::net::TcpListener::bind(("127.0.0.1", port)).is_err()
+}
+
+#[derive(serde::Serialize)]
+struct PortStatus {
+    port: u16,
+    in_use: bool,
+}
+
+#[tauri::command]
+fn check_port(port: u16) -> AppResult<PortStatus> {
+    Ok(PortStatus {
+        port,
+        in_use: is_port_in_use(port),
+    })
+}
+
+/// 从 start 开始往后找第一个空闲端口，给「自动分配」按钮用
+#[tauri::command]
+fn find_free_port(start: u16) -> AppResult<Option<u16>> {
+    let end = start.saturating_add(200).min(65535);
+
+    for port in start..=end {
+        if !is_port_in_use(port) {
+            return Ok(Some(port));
+        }
+    }
+
+    Ok(None)
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct TraySettings {
+    close_to_tray: bool,
+    autostart: bool,
+}
+
+#[tauri::command]
+fn get_tray_settings(app_handle: AppHandle) -> AppResult<TraySettings> {
+    let close_to_tray = load_config(&app_handle).close_to_tray.unwrap_or(true);
+    let autostart = app_handle.autolaunch().is_enabled().unwrap_or(false);
+
+    Ok(TraySettings {
+        close_to_tray,
+        autostart,
+    })
+}
+
+#[tauri::command]
+fn set_tray_settings(
+    app_handle: AppHandle,
+    close_to_tray: bool,
+    autostart: bool,
+) -> AppResult<TraySettings> {
+    let mut config = load_config(&app_handle);
+    config.close_to_tray = Some(close_to_tray);
+    save_config(&app_handle, &config)?;
+
+    let manager = app_handle.autolaunch();
+
+    if autostart {
+        let _ = manager.enable();
+    } else {
+        let _ = manager.disable();
+    }
+
+    Ok(TraySettings {
+        close_to_tray,
+        autostart: manager.is_enabled().unwrap_or(autostart),
+    })
+}
+
 /// 无边框窗口的窗口操作。Tauri v2 并未实现 data-tauri-drag-region 属性，
 /// 拖动与控制按钮都必须自己调用底层接口
 #[tauri::command]
@@ -915,7 +1195,12 @@ fn window_action(app_handle: AppHandle, action: String) -> AppResult<()> {
             }
         }
         "close" => {
-            let _ = window.close();
+            // 开了「关闭时最小化到托盘」就只藏窗口，进程留给托盘
+            if load_config(&app_handle).close_to_tray.unwrap_or(true) {
+                let _ = window.hide();
+            } else {
+                let _ = window.close();
+            }
         }
         "drag" => {
             let _ = window.start_dragging();
@@ -1302,11 +1587,60 @@ async fn run_backup(
     .map_err(|e| AppError::Other(e.to_string()))
 }
 
+/// 把主窗口显示出来并聚焦，托盘点击时用
+fn show_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+/// 托盘常驻：左键单击显示窗口，右键菜单里可以彻底退出
+fn build_tray(app: &AppHandle) -> tauri::Result<()> {
+    let menu = MenuBuilder::new(app)
+        .text("show", "显示窗口")
+        .text("quit", "退出")
+        .build()?;
+
+    let mut tray: tauri::tray::TrayIconBuilder<tauri::Wry> = TrayIconBuilder::new()
+        .menu(&menu)
+        // 左键直接唤窗口，菜单留给右键
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "show" => show_main_window(app),
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main_window(tray.app_handle());
+            }
+        });
+
+    if let Some(icon) = app.default_window_icon().cloned() {
+        tray = tray.icon(icon);
+    }
+
+    tray.build(app)?;
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![]),
+        ))
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&app_data_dir)?;
@@ -1336,12 +1670,23 @@ pub fn run() {
 
                 let handle = app.handle().clone();
                 window.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { .. } = event {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                         let _ = save_window_state(handle.clone());
+
+                        // 开着托盘常驻时，点关闭只是把窗口藏起来
+                        if load_config(&handle).close_to_tray.unwrap_or(true) {
+                            api.prevent_close();
+
+                            if let Some(w) = handle.get_webview_window("main") {
+                                let _ = w.hide();
+                            }
+                        }
                     }
                 });
             }
-            
+
+            build_tray(app.handle())?;
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1385,6 +1730,13 @@ pub fn run() {
             window_action,
             move_profiles_to_workspace,
             backup_profiles,
+            close_profile,
+            close_all_profiles,
+            test_proxy,
+            check_port,
+            find_free_port,
+            get_tray_settings,
+            set_tray_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

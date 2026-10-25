@@ -1,5 +1,6 @@
 use std::process::Command;
 use std::path::PathBuf;
+use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::db::LaunchArgs;
@@ -165,6 +166,75 @@ impl ChromeManager {
         }
 
         None
+    }
+
+    /// 进程是否还活着。关浏览器之后用它判断要不要补一刀强杀
+    pub fn is_process_alive(pid: u32) -> bool {
+        #[cfg(windows)]
+        {
+            match Command::new("tasklist")
+                .args(["/FI", &format!("PID eq {}", pid)])
+                .output()
+            {
+                Ok(out) => {
+                    let text = String::from_utf8_lossy(&out.stdout).to_string();
+                    // 没有匹配进程时 tasklist 只输出一行提示，不会带上这个 pid
+                    text.lines().any(|line| line.contains(&pid.to_string()))
+                }
+                Err(_) => false,
+            }
+        }
+
+        #[cfg(not(windows))]
+        {
+            // 信号 0 只做存在性探测，不会真的发信号
+            unsafe { libc::kill(pid as i32, 0) == 0 }
+        }
+    }
+
+    /// 关闭一个浏览器实例：先请求正常退出（Chrome 能走完自己的收尾流程），
+    /// 没反应才强杀，最后清掉残留的锁文件，避免下次启动被误判为「正在运行」
+    pub fn close_browser(&self, pid: u32, user_data_dir: Option<&PathBuf>) -> Result<(), String> {
+        #[cfg(windows)]
+        {
+            // 不带 /F 是「请求关闭」，带 /T 连子进程一起
+            let _ = Command::new("taskkill")
+                .args(["/PID", &pid.to_string(), "/T"])
+                .output();
+
+            std::thread::sleep(Duration::from_millis(1500));
+
+            if Self::is_process_alive(pid) {
+                let _ = Command::new("taskkill")
+                    .args(["/PID", &pid.to_string(), "/T", "/F"])
+                    .output();
+
+                std::thread::sleep(Duration::from_millis(500));
+            }
+        }
+
+        #[cfg(not(windows))]
+        {
+            let _ = Command::new("kill")
+                .args(["-TERM", &pid.to_string()])
+                .output();
+
+            std::thread::sleep(Duration::from_millis(1500));
+
+            if Self::is_process_alive(pid) {
+                let _ = Command::new("kill")
+                    .args(["-KILL", &pid.to_string()])
+                    .output();
+
+                std::thread::sleep(Duration::from_millis(500));
+            }
+        }
+
+        if let Some(dir) = user_data_dir {
+            let _ = self.unlock_profile(dir);
+        }
+
+        Ok(())
     }
 
     pub fn unlock_profile(&self, user_data_dir: &PathBuf) -> Result<(), String> {

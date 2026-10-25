@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { Profile, Backup, ChromeLaunchResult, BackupResult, RestoreResult, PerformanceRecord, Workspace, PathsInfo, LaunchArgs, BackupInspectInfo } from '../types';
+import type { Profile, Backup, ChromeLaunchResult, BackupResult, RestoreResult, PerformanceRecord, Workspace, PathsInfo, LaunchArgs, BackupInspectInfo, ProxyTestResult, PortStatus, TraySettings } from '../types';
 
 export const api = {
   // Profile operations
@@ -15,6 +15,7 @@ export const api = {
     iconBase64?: string,
     iconColor?: string,
     tags?: string,
+    notes?: string,
     forwardPort?: number,
     disableExtensions?: boolean,
     debuggerMode?: boolean,
@@ -31,6 +32,7 @@ export const api = {
       iconBase64,
       iconColor,
       tags,
+      notes,
       forwardPort,
       disableExtensions,
       debuggerMode,
@@ -46,15 +48,34 @@ export const api = {
 
   getTemplateIds: (): Promise<string[]> => invoke('get_template_ids'),
 
-  /** iconColor 传空串表示清空，回到按 id 自动取色 */
-  updateProfile: (id: string, name?: string, chromePath?: string, homepage?: string, iconBase64?: string, iconColor?: string, tags?: string, forwardPort?: number | null, disableExtensions?: boolean, debuggerMode?: boolean, debugPortConfig?: number | null, launchArgs?: LaunchArgs): Promise<boolean> =>
-    invoke('update_profile', { id, name, chromePath, homepage, iconBase64, iconColor, tags, forwardPort, disableExtensions, debuggerMode, debugPortConfig, launchArgs }),
+  /** iconColor 传空串表示清空，回到按 id 自动取色；notes 同理 */
+  updateProfile: (id: string, name?: string, chromePath?: string, homepage?: string, iconBase64?: string, iconColor?: string, tags?: string, notes?: string, forwardPort?: number | null, disableExtensions?: boolean, debuggerMode?: boolean, debugPortConfig?: number | null, launchArgs?: LaunchArgs): Promise<boolean> =>
+    invoke('update_profile', { id, name, chromePath, homepage, iconBase64, iconColor, tags, notes, forwardPort, disableExtensions, debuggerMode, debugPortConfig, launchArgs }),
 
   deleteProfile: (id: string): Promise<boolean> => invoke('delete_profile', { id }),
 
   // Chrome operations
   launchChrome: (id: string, url?: string): Promise<ChromeLaunchResult> =>
     invoke('launch_chrome', { id, url }),
+
+  /** 关闭一个配置对应的浏览器：先正常退出，没反应再强杀 */
+  closeProfile: (id: string): Promise<boolean> => invoke('close_profile', { id }),
+
+  /** 一键关闭所有运行中的配置，返回处理条数 */
+  closeAllProfiles: (): Promise<number> => invoke('close_all_profiles'),
+
+  /** 用配置里填的代理发一次请求，返回出口 IP，用来验证代理是否真的通 */
+  testProxy: (proxy: string): Promise<ProxyTestResult> => invoke('test_proxy', { proxy }),
+
+  checkPort: (port: number): Promise<PortStatus> => invoke('check_port', { port }),
+
+  /** 从 start 开始找第一个空闲端口 */
+  findFreePort: (start: number): Promise<number | null> => invoke('find_free_port', { start }),
+
+  getTraySettings: (): Promise<TraySettings> => invoke('get_tray_settings'),
+
+  setTraySettings: (closeToTray: boolean, autostart: boolean): Promise<TraySettings> =>
+    invoke('set_tray_settings', { closeToTray, autostart }),
 
   // Backup operations
   backupProfile: (id: string, backupDir: string): Promise<BackupResult> =>

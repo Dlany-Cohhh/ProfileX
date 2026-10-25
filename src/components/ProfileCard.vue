@@ -36,6 +36,9 @@
       <!-- 信息区域 -->
       <div class="profile-info">
         <h3 class="profile-name" :title="profile.name">{{ profile.name }}</h3>
+        <div v-if="profile.notes" class="profile-notes" :title="profile.notes">
+          {{ profile.notes }}
+        </div>
         <div class="profile-tags" v-if="isTemplate || tagList.length > 0">
           <span v-if="isTemplate" class="profile-tag template-tag">
             <Copy :size="11" :stroke-width="2" />
@@ -453,6 +456,18 @@ const handleLaunch = async () => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+// 备注：只显示一行，完整内容靠 title 悬浮看
+.profile-notes {
+  margin-top: 2px;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 // 标签区域

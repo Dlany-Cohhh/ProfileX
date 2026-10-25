@@ -80,13 +80,34 @@
       <template v-if="form.debugger_mode">
         <div class="form-row">
           <el-form-item :label="$t('profile.form.debugPortConfig')" prop="debug_port_config" class="flex-1">
-            <el-input-number
-              v-model="form.debug_port_config"
-              :placeholder="$t('profile.form.debugPortConfigPlaceholder')"
-              :min="1"
-              :max="65535"
-              class="full-width"
-            />
+            <div class="port-row">
+              <el-input-number
+                v-model="form.debug_port_config"
+                :placeholder="$t('profile.form.debugPortConfigPlaceholder')"
+                :min="1"
+                :max="65535"
+                class="port-input"
+              />
+
+              <!-- 端口冲突是启动失败最常见的原因，给个一键找空闲端口 -->
+              <el-tooltip :content="$t('profile.form.autoPort')" placement="top" :show-after="300">
+                <button
+                  type="button"
+                  class="port-btn"
+                  :disabled="pickingPort"
+                  @click="assignFreePort"
+                >
+                  <el-icon><Aim /></el-icon>
+                </button>
+              </el-tooltip>
+            </div>
+
+            <div v-if="portStatus === 'used'" class="port-tip warn">
+              {{ $t('profile.form.portInUse') }}
+            </div>
+            <div v-else-if="portStatus === 'free'" class="port-tip ok">
+              {{ $t('profile.form.portFree') }}
+            </div>
           </el-form-item>
 
           <el-form-item :label="$t('profile.status.forwardPort')" prop="forward_port" class="flex-1">
@@ -140,6 +161,17 @@
           </el-select>
         </el-form-item>
       </div>
+
+      <el-form-item :label="$t('profile.form.notes')" class="notes-item">
+        <el-input
+          v-model="form.notes"
+          type="textarea"
+          :rows="2"
+          maxlength="500"
+          show-word-limit
+          :placeholder="$t('profile.form.notesPlaceholder')"
+        />
+      </el-form-item>
 
       <!-- 图标颜色单独占一行：色块够宽就不换行，也不会跟头像挤在一起 -->
       <el-form-item :label="$t('profile.form.iconColor')" class="icon-color-item">
@@ -208,11 +240,26 @@
       <template v-if="showLaunchArgs">
         <div class="form-row">
           <el-form-item :label="$t('profile.form.proxy')" class="flex-1">
-            <el-input
-              v-model="form.launch_args.proxy"
-              :placeholder="$t('profile.form.proxyPlaceholder')"
-              clearable
-            />
+            <div class="proxy-row">
+              <el-input
+                v-model="form.launch_args.proxy"
+                :placeholder="$t('profile.form.proxyPlaceholder')"
+                clearable
+                class="proxy-input"
+              />
+              <el-button plain :loading="testingProxy" @click="handleTestProxy">
+                {{ $t('profile.form.testProxy') }}
+              </el-button>
+            </div>
+
+            <!-- 代理填错的话，这里直接看到出口 IP 或失败原因 -->
+            <div v-if="proxyResult" class="proxy-result" :class="proxyResult.ok ? 'ok' : 'fail'">
+              {{
+                proxyResult.ok
+                  ? $t('profile.form.proxyOk', { ip: proxyResult.ip, ms: proxyResult.elapsed_ms })
+                  : $t('profile.form.proxyFail', { error: proxyResult.error })
+              }}
+            </div>
           </el-form-item>
 
           <el-form-item :label="$t('profile.form.language')" class="flex-1">
@@ -291,8 +338,8 @@
 import { ref, computed, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { ElMessage } from 'element-plus';
-import { Camera } from '@element-plus/icons-vue';
-import type { Profile, LaunchArgs } from '../types';
+import { Camera, Aim } from '@element-plus/icons-vue';
+import type { Profile, LaunchArgs, ProxyTestResult } from '../types';
 import { api } from '../api';
 import { MACARON_PALETTE, macaronColor, textColorFor } from '../utils/macaron';
 import { useWorkspaceStore } from '../store/workspace';
@@ -378,6 +425,7 @@ const form = ref({
   icon_base64: '',
   icon_color: '',
   tags: '',
+  notes: '',
   forward_port: undefined as number | undefined,
   disable_extensions: true,
   debugger_mode: true,
@@ -387,6 +435,76 @@ const form = ref({
   template_mode: 'extensions' as string,
   launch_args: emptyLaunchArgs(),
 });
+
+/** 端口占用情况：unknown = 还没查 / 没填 */
+const portStatus = ref<'unknown' | 'free' | 'used'>('unknown');
+const pickingPort = ref(false);
+let portTimer: number | undefined;
+
+watch(
+  () => form.value.debug_port_config,
+  (port) => {
+    portStatus.value = 'unknown';
+
+    if (!port) return;
+
+    // 输入过程中别每个数字都查一次
+    window.clearTimeout(portTimer);
+    portTimer = window.setTimeout(async () => {
+      try {
+        const status = await api.checkPort(port);
+        portStatus.value = status.in_use ? 'used' : 'free';
+      } catch {
+        portStatus.value = 'unknown';
+      }
+    }, 350);
+  }
+);
+
+const assignFreePort = async () => {
+  pickingPort.value = true;
+
+  try {
+    const port = await api.findFreePort(form.value.debug_port_config || 9222);
+
+    if (port) {
+      form.value.debug_port_config = port;
+      portStatus.value = 'free';
+      ElMessage.success(t('profile.form.portAssigned', { port }));
+    } else {
+      ElMessage.warning(t('profile.form.noFreePort'));
+    }
+  } catch (error) {
+    ElMessage.error(t('common.error'));
+    console.error(error);
+  } finally {
+    pickingPort.value = false;
+  }
+};
+
+/** 代理自检：按当前填的代理发一次请求，把出口 IP 显示出来 */
+const testingProxy = ref(false);
+const proxyResult = ref<ProxyTestResult | null>(null);
+
+const handleTestProxy = async () => {
+  testingProxy.value = true;
+  proxyResult.value = null;
+
+  try {
+    proxyResult.value = await api.testProxy(form.value.launch_args.proxy || '');
+
+    if (proxyResult.value.ok) {
+      ElMessage.success(t('profile.messages.proxyOk'));
+    } else {
+      ElMessage.error(t('profile.messages.proxyFail'));
+    }
+  } catch (error) {
+    ElMessage.error(t('common.error'));
+    console.error(error);
+  } finally {
+    testingProxy.value = false;
+  }
+};
 
 /** 启动参数区块默认收起，已有配置时才展开 */
 const showLaunchArgs = ref(false);
@@ -435,6 +553,7 @@ watch(
         icon_base64: profile.icon_base64 || '',
         icon_color: profile.icon_color || '',
         tags: profile.tags || '',
+        notes: profile.notes || '',
         forward_port: profile.forward_port,
         disable_extensions: profile.disable_extensions ?? true,
         debugger_mode: profile.debugger_mode ?? true,
@@ -454,6 +573,7 @@ watch(
         icon_base64: '',
         icon_color: '',
         tags: '',
+        notes: '',
         forward_port: undefined,
         disable_extensions: true,
         debugger_mode: true,
@@ -535,6 +655,7 @@ const handleSubmit = async () => {
         // 空串表示清空，回到按 id 自动取色
         form.value.icon_color,
         tags || undefined,
+        form.value.notes,
         form.value.forward_port ?? null,
         form.value.disable_extensions,
         form.value.debugger_mode,
@@ -556,6 +677,7 @@ const handleSubmit = async () => {
         form.value.icon_base64 || undefined,
         form.value.icon_color || undefined,
         tags || undefined,
+        form.value.notes || undefined,
         form.value.forward_port || undefined,
         form.value.disable_extensions,
         form.value.debugger_mode,
@@ -736,6 +858,69 @@ const handleSubmit = async () => {
 
   :deep(.el-form-item__content) {
     line-height: 1;
+  }
+}
+
+.notes-item {
+  :deep(.el-textarea__inner) {
+    font-size: var(--text-sm);
+  }
+}
+
+.port-row,
+.proxy-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.port-input,
+.proxy-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.port-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-medium);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+
+  &:hover:not(:disabled) {
+    border-color: var(--primary-400);
+    color: var(--primary-600);
+    background: var(--primary-50);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
+.port-tip,
+.proxy-result {
+  margin-top: 4px;
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  word-break: break-all;
+
+  &.warn,
+  &.fail {
+    color: var(--danger-600);
+  }
+
+  &.ok {
+    color: var(--success-600);
   }
 }
 

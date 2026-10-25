@@ -9,6 +9,7 @@
     "core:default",
     "opener:default",
     "dialog:default",
+    "autostart:default",
     "core:window:allow-set-theme"
   ]
 }

@@ -10,6 +10,11 @@
           <el-icon><Edit /></el-icon>
           <span>{{ $t('profile.actions.edit') }}</span>
         </el-dropdown-item>
+        <!-- 只有正在运行的配置才需要「关闭」 -->
+        <el-dropdown-item v-if="props.profile.is_running" command="close">
+          <el-icon><SwitchButton /></el-icon>
+          <span>{{ $t('profile.actions.close') }}</span>
+        </el-dropdown-item>
         <el-dropdown-item command="performance">
           <el-icon><DataLine /></el-icon>
           <span>{{ $t('profile.actions.performance') }}</span>
@@ -84,7 +89,8 @@ import {
   Folder,
   ArrowRight,
   Brush,
-  Files
+  Files,
+  SwitchButton
 } from '@element-plus/icons-vue';
 import type { Profile } from '../types';
 import { api } from '../api';
@@ -160,6 +166,9 @@ const handleClearCache = async () => {
 
 const handleCommand = (command: string) => {
   switch (command) {
+    case 'close':
+      profileStore.handleClose(props.profile);
+      break;
     case 'edit':
       emit('edit', props.profile);
       break;

@@ -18,7 +18,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -37,6 +37,7 @@ url = "2.5"
 futures-util = { version = "0.3", features = ["sink"] }
 socket2 = { version = "0.5", features = ["all"] }
 tauri-plugin-dialog = "2"
+tauri-plugin-autostart = "2"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
