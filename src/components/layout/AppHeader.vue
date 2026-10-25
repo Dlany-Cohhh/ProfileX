@@ -9,6 +9,7 @@
         <div class="brand-text">
           <h1 class="brand-title">SpaceShift</h1>
           <span class="brand-subtitle">
+            <span v-if="runningCount > 0" class="live-dot" />
             {{ $t('header.stats', { running: runningCount, total: totalCount }) }}
           </span>
         </div>
@@ -32,7 +33,7 @@
       <!-- 语言切换 -->
       <el-dropdown trigger="click" @command="handleLanguageChange">
         <button class="icon-btn">
-          <el-icon><i class="el-icon-language"></i><span class="lang-text">{{ currentLocale === 'zh' ? '中' : 'EN' }}</span></el-icon>
+          <span class="lang-text">{{ currentLocale === 'zh' ? '中' : 'EN' }}</span>
         </button>
         <template #dropdown>
           <el-dropdown-menu>
@@ -63,36 +64,47 @@
         </button>
       </el-tooltip>
 
-      <el-radio-group v-model="profileStore.viewMode" size="small" class="view-toggle">
-        <el-tooltip :content="$t('main.gridView')" placement="bottom">
-          <el-radio-button label="grid">
+      <span class="divider" />
+
+      <!-- 视图切换：自绘分段控件，比 el-radio-group 窄一半 -->
+      <div class="view-toggle">
+        <el-tooltip :content="$t('main.gridView')" placement="bottom" :show-after="300">
+          <button
+            class="view-btn"
+            :class="{ active: profileStore.viewMode === 'grid' }"
+            @click="profileStore.viewMode = 'grid'"
+          >
             <el-icon><Grid /></el-icon>
-          </el-radio-button>
+          </button>
         </el-tooltip>
-        <el-tooltip :content="$t('main.listView')" placement="bottom">
-          <el-radio-button label="list">
+        <el-tooltip :content="$t('main.listView')" placement="bottom" :show-after="300">
+          <button
+            class="view-btn"
+            :class="{ active: profileStore.viewMode === 'list' }"
+            @click="profileStore.viewMode = 'list'"
+          >
             <el-icon><List /></el-icon>
-          </el-radio-button>
+          </button>
         </el-tooltip>
-      </el-radio-group>
+      </div>
 
       <el-button type="primary" @click="$emit('create')" class="create-btn">
         <el-icon><Plus /></el-icon>
-        <span>{{ $t('header.newProfile') }}</span>
+        <span class="create-text">{{ $t('header.newProfile') }}</span>
       </el-button>
+    </div>
 
-      <!-- 无边框窗口的自绘控制按钮 -->
-      <div class="window-controls">
-        <button class="win-btn" :title="$t('header.window.minimize')" @click="runAction('minimize')">
-          <svg viewBox="0 0 10 10" width="10" height="10"><path d="M0 5h10" stroke="currentColor" stroke-width="1" /></svg>
-        </button>
-        <button class="win-btn" :title="$t('header.window.maximize')" @click="runAction('maximize')">
-          <svg viewBox="0 0 10 10" width="10" height="10"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1" /></svg>
-        </button>
-        <button class="win-btn close" :title="$t('header.window.close')" @click="runAction('close')">
-          <svg viewBox="0 0 10 10" width="10" height="10"><path d="M0 0l10 10M10 0L0 10" stroke="currentColor" stroke-width="1" /></svg>
-        </button>
-      </div>
+    <!-- 窗口控制按钮绝对定位在右上角，不参与伸缩，永远不会被内容挤出可视区 -->
+    <div class="window-controls">
+      <button class="win-btn" :title="$t('header.window.minimize')" @click="runAction('minimize')">
+        <svg viewBox="0 0 10 10" width="10" height="10"><path d="M0 5h10" stroke="currentColor" stroke-width="1" /></svg>
+      </button>
+      <button class="win-btn" :title="$t('header.window.maximize')" @click="runAction('maximize')">
+        <svg viewBox="0 0 10 10" width="10" height="10"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1" /></svg>
+      </button>
+      <button class="win-btn close" :title="$t('header.window.close')" @click="runAction('close')">
+        <svg viewBox="0 0 10 10" width="10" height="10"><path d="M0 0l10 10M10 0L0 10" stroke="currentColor" stroke-width="1" /></svg>
+      </button>
     </div>
   </header>
 </template>
@@ -132,7 +144,7 @@ const runAction = async (action: 'minimize' | 'maximize' | 'close' | 'drag') => 
 const startDrag = (event: MouseEvent) => {
   const target = event.target as HTMLElement | null;
 
-  if (target?.closest('button, input, textarea, select, label, a, .el-input, .el-radio-group')) {
+  if (target?.closest('button, input, textarea, select, label, a, .el-input, .view-toggle')) {
     return;
   }
 
@@ -168,48 +180,51 @@ const handleRefresh = async () => {
 </script>
 
 <style lang="scss" scoped>
+// ── 标题栏：52px 单行，右侧固定预留 96px 给窗口按钮 ──
 .app-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 var(--space-5);
-  height: 60px;
-  background: var(--bg-primary);
-  border-bottom: 1px solid var(--border-light);
   position: sticky;
   top: 0;
   z-index: var(--z-sticky);
-  box-shadow: var(--shadow-xs);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 52px;
+  padding: 0 100px 0 var(--space-4);
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-light);
+  user-select: none;
 }
 
 .header-left {
   display: flex;
   align-items: center;
-  flex-shrink: 0;
+  flex: 0 0 auto;
 }
 
+// ── 品牌区 ──
 .brand {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: 10px;
 
   &-icon {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 38px;
-    height: 38px;
-    border-radius: var(--radius-lg);
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
     overflow: hidden;
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25);
-    transition: all 0.3s ease;
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.28);
+    transition: transform var(--transition-fast), box-shadow var(--transition-fast);
 
     &:hover {
-      transform: scale(1.05);
-      box-shadow: 0 6px 16px rgba(59, 130, 246, 0.35);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.36);
     }
 
     .logo-image {
+      display: block;
       width: 100%;
       height: 100%;
       object-fit: contain;
@@ -219,41 +234,70 @@ const handleRefresh = async () => {
   &-text {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 1px;
+    line-height: 1.15;
   }
 
   &-title {
-    font-size: var(--text-base);
-    font-weight: var(--font-semibold);
-    color: var(--text-primary);
-    line-height: 1.2;
     margin: 0;
+    font-size: 14px;
+    font-weight: var(--font-semibold);
+    letter-spacing: -0.01em;
+    color: var(--text-primary);
   }
 
   &-subtitle {
-    font-size: var(--text-xs);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
     color: var(--text-tertiary);
-    line-height: 1.2;
+    white-space: nowrap;
   }
 }
 
+// 有配置在跑时的小绿点，替代原来干巴巴的数字
+.live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success-500, #22c55e);
+  animation: live-pulse 2s ease-out infinite;
+}
+
+@keyframes live-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(0, 181, 120, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 5px rgba(0, 181, 120, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(0, 181, 120, 0);
+  }
+}
+
+// ── 搜索框：唯一可伸缩的区域，空间不够时先压它 ──
 .header-center {
-  // 空间不足时先压缩搜索框，保证右侧按钮完整可见
   flex: 1 1 0;
   min-width: 0;
-  max-width: 400px;
-  margin: 0 var(--space-4);
+  max-width: 420px;
+  // 左右 auto：搜索框落在中间的空白里，两侧留白对称
+  margin: 0 auto;
 }
 
 .search-input {
   width: 100%;
 
   :deep(.el-input__wrapper) {
-    border-radius: var(--radius-md);
+    height: 30px;
+    padding: 0 10px;
+    border-radius: 8px;
     background: var(--bg-secondary);
     border: 1px solid transparent;
     box-shadow: none;
-    transition: all var(--transition-fast);
+    transition: background var(--transition-fast), border-color var(--transition-fast),
+      box-shadow var(--transition-fast);
 
     &:hover {
       background: var(--bg-tertiary);
@@ -262,12 +306,12 @@ const handleRefresh = async () => {
     &.is-focus {
       background: var(--bg-primary);
       border-color: var(--primary-400);
-      box-shadow: 0 0 0 2px var(--primary-100);
+      box-shadow: 0 0 0 3px var(--primary-100);
     }
   }
 
   :deep(.el-input__inner) {
-    font-size: var(--text-sm);
+    font-size: 13px;
     color: var(--text-primary);
 
     &::placeholder {
@@ -276,46 +320,59 @@ const handleRefresh = async () => {
   }
 
   :deep(.el-input__prefix) {
+    margin-right: 6px;
     color: var(--text-tertiary);
-    margin-right: var(--space-2);
+
+    .el-icon {
+      font-size: 14px;
+    }
+  }
+
+  :deep(.el-input__suffix) {
+    color: var(--text-tertiary);
   }
 }
 
+// ── 右侧操作区 ──
 .header-right {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  // 窗口控制按钮在最右侧，绝不能被挤到窗口外面去
-  flex-shrink: 0;
+  gap: 2px;
+  flex: 0 0 auto;
 }
 
 .icon-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   border: none;
+  border-radius: 7px;
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  border-radius: 50%;
-  transition: all 0.2s ease;
+  transition: background var(--transition-fast), color var(--transition-fast),
+    transform var(--transition-fast);
+
+  .el-icon {
+    font-size: 15px;
+  }
 
   .lang-text {
     font-size: 11px;
     font-weight: var(--font-bold);
-    font-family: var(--font-mono, monospace);
+    letter-spacing: 0.02em;
   }
 
   &:hover {
     background: var(--bg-hover);
     color: var(--text-primary);
   }
-  
+
   &:active {
-    transform: scale(0.95);
+    transform: scale(0.94);
   }
 
   &.spinning .el-icon {
@@ -329,36 +386,91 @@ const handleRefresh = async () => {
   }
 }
 
-.view-toggle {
-  :deep(.el-radio-button__inner) {
-    padding: 6px 12px;
-    font-size: var(--text-sm);
+.divider {
+  flex: 0 0 auto;
+  width: 1px;
+  height: 18px;
+  margin: 0 8px;
+  background: var(--bg-tertiary);
+}
 
-    .el-icon {
-      font-size: 16px;
-    }
+// ── 视图切换：分段控件 ──
+.view-toggle {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--bg-secondary);
+}
+
+.view-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast),
+    box-shadow var(--transition-fast);
+
+  .el-icon {
+    font-size: 14px;
+  }
+
+  &:hover {
+    color: var(--text-primary);
+  }
+
+  &.active {
+    background: var(--bg-primary);
+    color: var(--primary-500);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
   }
 }
 
 .create-btn {
-  height: 34px;
-  padding: 0 16px;
-  font-size: var(--text-sm);
-  font-weight: var(--font-medium);
   display: flex;
   align-items: center;
-  gap: var(--space-1);
+  gap: 4px;
+  height: 30px;
+  margin-left: 6px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: var(--font-medium);
+  box-shadow: 0 1px 2px rgba(59, 130, 246, 0.25);
+  transition: box-shadow var(--transition-fast), transform var(--transition-fast);
 
   .el-icon {
-    font-size: 16px;
+    font-size: 14px;
+  }
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.32);
+  }
+
+  &:active {
+    transform: none;
   }
 }
 
-// 自绘窗口控制按钮
+// ── 窗口控制按钮：贴右上角，整块高度可点 ──
 .window-controls {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 2;
   display: flex;
-  align-items: center;
-  margin-left: var(--space-2);
+  align-items: stretch;
+  height: 100%;
+  border-left: 1px solid var(--border-light);
 }
 
 .win-btn {
@@ -366,76 +478,59 @@ const handleRefresh = async () => {
   align-items: center;
   justify-content: center;
   width: 32px;
-  height: 28px;
+  padding: 0;
   border: none;
   background: transparent;
   color: var(--text-tertiary);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: background 0.12s ease, color 0.12s ease;
 
   &:hover {
     background: var(--bg-hover);
     color: var(--text-primary);
   }
 
+  &:active {
+    background: var(--bg-tertiary);
+  }
+
+  // 关闭按钮沿用系统习惯的红色
   &.close:hover {
-    background: var(--danger-500);
+    background: #e81123;
+    color: #fff;
+  }
+
+  &.close:active {
+    background: #f1707a;
     color: #fff;
   }
 }
 
-// 窗口变窄时先让位给窗口控制按钮
-@media (max-width: 1024px) {
+// ── 窄窗口逐级让位：先收搜索框，再藏文字和次要控件 ──
+@media (max-width: 1040px) {
   .header-center {
     max-width: 200px;
   }
 
-  .view-toggle {
-    display: none;
-  }
-}
-
-@media (max-width: 768px) {
-  .app-header {
-    flex-wrap: wrap;
-    height: auto;
-    padding: var(--space-3);
-    gap: var(--space-3);
-  }
-
-  .brand-subtitle {
-    display: none;
-  }
-
-  .header-center {
-    order: 3;
-    width: 100%;
-    max-width: none;
-    margin: 0;
-  }
-
-  .header-right {
-    margin-left: auto;
-  }
-}
-
-@media (max-width: 480px) {
-  .brand-icon {
-    width: 32px;
-    height: 32px;
-    font-size: 18px;
-  }
-
-  .brand-title {
-    font-size: var(--text-sm);
-  }
-
-  .create-btn span {
+  .create-text {
     display: none;
   }
 
   .create-btn {
-    padding: 0 10px;
+    padding: 0 9px;
+  }
+}
+
+@media (max-width: 900px) {
+  .view-toggle,
+  .divider {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .brand-text {
+    display: none;
   }
 }
 </style>
