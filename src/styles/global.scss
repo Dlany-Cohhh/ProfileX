@@ -425,6 +425,39 @@ body {
   }
 }
 
+// 筛选胶囊的下拉面板：圆角、留白、选中项轻底色
+// popper 挂在 body 上，只能写成全局样式
+.app-filter-popper {
+  padding: 4px !important;
+  border-radius: var(--radius-lg) !important;
+  border: 1px solid var(--border-light) !important;
+  box-shadow: var(--shadow-lg) !important;
+
+  .el-select-dropdown__list {
+    padding: 0;
+  }
+
+  .el-select-dropdown__item {
+    height: 30px;
+    line-height: 30px;
+    margin: 2px 0;
+    padding: 0 10px;
+    border-radius: var(--radius-md);
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
+
+    &.is-hovering {
+      background: var(--bg-hover);
+    }
+
+    &.is-selected {
+      background: var(--primary-50);
+      color: var(--primary-600);
+      font-weight: 500;
+    }
+  }
+}
+
 // Utility Classes
 .text-primary {
   color: var(--text-primary);

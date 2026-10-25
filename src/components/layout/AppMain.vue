@@ -37,71 +37,6 @@
         >
           {{ $t('main.selectAll') }}
         </el-checkbox>
-        <span class="toolbar-hint">{{ $t('main.selectAllHint', { n: visibleIds.length }) }}</span>
-
-        <!-- 排序 / 筛选单独一行，避免和上面的工具栏挤在一起 -->
-        <div class="filter-row">
-          <div class="filter-group">
-            <el-select v-model="profileStore.sortBy" class="filter-select" size="small">
-              <el-option
-                v-for="opt in sortOptions"
-                :key="opt.value"
-                :label="opt.label"
-                :value="opt.value"
-              />
-            </el-select>
-
-            <!-- 手动顺序下没有升降序的概念，直接不显示 -->
-            <el-tooltip
-              v-if="profileStore.sortBy !== 'custom'"
-              :content="
-                profileStore.sortDir === 'asc' ? $t('main.sortAsc') : $t('main.sortDesc')
-              "
-              placement="bottom"
-              :show-after="300"
-            >
-              <button class="sort-dir-btn" @click="toggleSortDir">
-                <ArrowUp :size="14" :stroke-width="2" v-if="profileStore.sortDir === 'asc'" />
-                <ArrowDown :size="14" :stroke-width="2" v-else />
-              </button>
-            </el-tooltip>
-
-            <el-select v-model="profileStore.statusFilter" class="filter-select" size="small">
-              <el-option
-                v-for="opt in statusOptions"
-                :key="opt.value"
-                :label="opt.label"
-                :value="opt.value"
-              />
-            </el-select>
-
-            <el-select
-              v-model="profileStore.tagFilter"
-              class="filter-select"
-              size="small"
-              clearable
-              :placeholder="$t('main.filterTag')"
-            >
-              <el-option v-for="tag in profileStore.existingTags" :key="tag" :label="tag" :value="tag" />
-            </el-select>
-
-            <span v-if="profileStore.sortBy === 'custom'" class="filter-hint">
-              {{ $t('main.sortCustomHint') }}
-            </span>
-          </div>
-
-          <el-button
-            v-if="profileStore.runningCount > 0"
-            class="close-all-btn"
-            plain
-            :loading="closingAll"
-            @click="handleCloseAll"
-          >
-            <el-icon><SwitchButton /></el-icon>
-            {{ $t('main.closeAll', { n: profileStore.runningCount }) }}
-          </el-button>
-        </div>
-
         <!-- 视图切换放在导入备份左侧，跟列表内容属于同一层 -->
         <div class="view-toggle">
           <el-tooltip :content="$t('main.gridView')" placement="bottom" :show-after="300">
@@ -132,6 +67,86 @@
         <el-button type="primary" class="toolbar-create" @click="$emit('create')">
           <Plus :size="16" :stroke-width="2" />
           {{ $t('header.newProfile') }}
+        </el-button>
+      </div>
+
+      <!-- 排序 / 筛选：独立一行，胶囊外壳 + 无边框下拉 -->
+      <div class="filter-row">
+        <div class="filter-chip" :class="{ 'is-active': profileStore.sortBy !== 'custom' }">
+          <ArrowUpDown :size="13" :stroke-width="1.75" class="chip-icon" />
+          <el-select
+            v-model="profileStore.sortBy"
+            class="chip-select"
+            size="small"
+            popper-class="app-filter-popper"
+          >
+            <el-option
+              v-for="opt in sortOptions"
+              :key="opt.value"
+              :label="opt.label"
+              :value="opt.value"
+            />
+          </el-select>
+        </div>
+
+        <!-- 手动顺序下没有升降序的概念，直接不显示 -->
+        <el-tooltip
+          v-if="profileStore.sortBy !== 'custom'"
+          :content="profileStore.sortDir === 'asc' ? $t('main.sortAsc') : $t('main.sortDesc')"
+          placement="bottom"
+          :show-after="300"
+        >
+          <button class="chip-btn" @click="toggleSortDir">
+            <ArrowUp v-if="profileStore.sortDir === 'asc'" :size="14" :stroke-width="2" />
+            <ArrowDown v-else :size="14" :stroke-width="2" />
+          </button>
+        </el-tooltip>
+
+        <div class="filter-chip" :class="{ 'is-active': profileStore.statusFilter !== 'all' }">
+          <Activity :size="13" :stroke-width="1.75" class="chip-icon" />
+          <el-select
+            v-model="profileStore.statusFilter"
+            class="chip-select"
+            size="small"
+            popper-class="app-filter-popper"
+          >
+            <el-option
+              v-for="opt in statusOptions"
+              :key="opt.value"
+              :label="opt.label"
+              :value="opt.value"
+            />
+          </el-select>
+        </div>
+
+        <div class="filter-chip" :class="{ 'is-active': !!profileStore.tagFilter }">
+          <Tag :size="13" :stroke-width="1.75" class="chip-icon" />
+          <el-select
+            v-model="profileStore.tagFilter"
+            class="chip-select"
+            size="small"
+            clearable
+            :placeholder="$t('main.filterTag')"
+            popper-class="app-filter-popper"
+          >
+            <el-option
+              v-for="tag in profileStore.existingTags"
+              :key="tag"
+              :label="tag"
+              :value="tag"
+            />
+          </el-select>
+        </div>
+
+        <el-button
+          v-if="profileStore.runningCount > 0"
+          class="close-all-btn"
+          plain
+          :loading="closingAll"
+          @click="handleCloseAll"
+        >
+          <el-icon><SwitchButton /></el-icon>
+          {{ $t('main.closeAll', { n: profileStore.runningCount }) }}
         </el-button>
       </div>
 
@@ -229,7 +244,17 @@ import ProfileCard from '../ProfileCard.vue';
 import { api } from '../../api';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { VideoPlay, Brush, Folder, SwitchButton } from '@element-plus/icons-vue';
-import { Import, LayoutGrid, List, Plus, ArrowUp, ArrowDown } from 'lucide-vue-next';
+import {
+  Import,
+  LayoutGrid,
+  List,
+  Plus,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
+  Activity,
+  Tag,
+} from 'lucide-vue-next';
 import { open } from '@tauri-apps/plugin-dialog';
 import { formatSize } from '../../utils/format';
 import { PROFILE_REORDER_TYPE } from '../../utils/dnd';
@@ -621,60 +646,100 @@ const handleDelete = async (profile: Profile) => {
   }
 }
 
-.toolbar-hint {
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
-  // 窗口变窄时优先压缩这行提示，别把右边的按钮挤出去
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-// 排序 / 筛选：单独一行，左边筛选右边「全部关闭」
+// 排序 / 筛选：单独一行，左边胶囊右边「全部关闭」
 .filter-row {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  margin-bottom: var(--space-3);
+  margin-bottom: var(--space-4);
   flex-wrap: wrap;
 }
 
-.filter-group {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-}
-
-.filter-select {
-  width: 122px;
-  flex: 0 0 auto;
-}
-
-.sort-dir-btn {
+// 胶囊外壳负责边框和底色，里面的 el-select 完全透明，
+// 这样下拉框看起来就是一整块，而不是「输入框套输入框」
+.filter-chip {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-medium);
-  background: var(--bg-primary);
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all var(--transition-fast);
+  gap: 5px;
+  height: 30px;
+  padding: 0 8px 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-full);
+  background: var(--bg-secondary);
+  transition: background var(--transition-fast), border-color var(--transition-fast);
 
   &:hover {
-    border-color: var(--primary-400);
-    color: var(--primary-600);
+    background: var(--bg-hover);
+  }
+
+  // 非默认值才点亮，一眼能看出「当前有筛选」
+  &.is-active {
     background: var(--primary-50);
+    border-color: var(--primary-200);
+
+    .chip-icon,
+    :deep(.el-select__selected-item) {
+      color: var(--primary-600);
+    }
+
+    :deep(.el-select__suffix) {
+      color: var(--primary-500);
+    }
+  }
+
+  :deep(.el-select) {
+    width: auto;
+  }
+
+  :deep(.el-select__wrapper) {
+    min-height: 24px;
+    padding: 0;
+    background: transparent;
+    box-shadow: none !important;
+    font-size: var(--text-sm);
+  }
+
+  :deep(.el-select__selected-item) {
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
+  }
+
+  :deep(.el-select__suffix),
+  :deep(.el-select__caret) {
+    font-size: 12px;
+    color: var(--text-tertiary);
+  }
+
+  :deep(.el-select__placeholder) {
+    font-size: var(--text-sm);
+    color: var(--text-tertiary);
   }
 }
 
-.filter-hint {
-  font-size: var(--text-xs);
+.chip-icon {
+  flex-shrink: 0;
   color: var(--text-tertiary);
+}
+
+// 升降序按钮跟胶囊同一套外观
+.chip-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-full);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+
+  &:hover {
+    background: var(--bg-hover);
+    color: var(--primary-600);
+  }
 }
 
 .close-all-btn {
