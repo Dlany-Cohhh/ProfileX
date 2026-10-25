@@ -65,6 +65,11 @@
           <Import :size="15" :stroke-width="1.75" />
           {{ $t('main.import') }}
         </el-button>
+
+        <el-button type="primary" class="toolbar-create" @click="$emit('create')">
+          <Plus :size="16" :stroke-width="2" />
+          {{ $t('header.newProfile') }}
+        </el-button>
       </div>
 
       <div
@@ -156,7 +161,7 @@ import ProfileCard from '../ProfileCard.vue';
 import { api } from '../../api';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { VideoPlay, Brush, Folder } from '@element-plus/icons-vue';
-import { Import, LayoutGrid, List } from 'lucide-vue-next';
+import { Import, LayoutGrid, List, Plus } from 'lucide-vue-next';
 import { open } from '@tauri-apps/plugin-dialog';
 import { formatSize } from '../../utils/format';
 import { PROFILE_REORDER_TYPE } from '../../utils/dnd';
@@ -499,6 +504,11 @@ const handleDelete = async (profile: Profile) => {
 .toolbar-hint {
   font-size: var(--text-xs);
   color: var(--text-tertiary);
+  // 窗口变窄时优先压缩这行提示，别把右边的按钮挤出去
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 // 视图切换：靠右贴住导入按钮，和它算一组
@@ -543,6 +553,17 @@ const handleDelete = async (profile: Profile) => {
 
 .toolbar-import {
   margin-left: 0;
+}
+
+.toolbar-create {
+  // Element 会给相邻按钮加 12px 左外边距，这里已经有 gap 了
+  &.el-button {
+    margin-left: 0;
+  }
+
+  svg {
+    display: block;
+  }
 }
 
 .profiles-container {

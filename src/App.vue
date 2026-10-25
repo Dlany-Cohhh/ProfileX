@@ -2,7 +2,7 @@
   <div class="app-container">
     <WindowResizeHandles />
 
-    <AppHeader @create="handleCreate" @settings="showSettings = true" />
+    <AppHeader @settings="showSettings = true" />
 
     <div class="app-body">
       <WorkspaceSidebar />

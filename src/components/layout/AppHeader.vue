@@ -63,11 +63,6 @@
           </button>
         </el-tooltip>
       </div>
-
-      <el-button type="primary" @click="$emit('create')" class="create-btn">
-        <Plus :size="16" :stroke-width="2" />
-        <span>{{ $t('header.newProfile') }}</span>
-      </el-button>
     </div>
 
     <!-- 无边框窗口的自绘控制按钮：固定在右上角，不参与右侧那一排的伸缩 -->
@@ -95,7 +90,6 @@ import {
   Settings2,
   Moon,
   Sun,
-  Plus,
   Minus,
   Square,
   X,
@@ -106,7 +100,7 @@ import { useProfileStore } from '../../store/profile';
 import { useWorkspaceStore } from '../../store/workspace';
 import { useThemeStore } from '../../store/theme';
 
-defineEmits(['create', 'settings']);
+defineEmits(['settings']);
 const profileStore = useProfileStore();
 const workspaceStore = useWorkspaceStore();
 const themeStore = useThemeStore();
@@ -172,7 +166,7 @@ const handleRefresh = async () => {
   align-items: center;
   justify-content: space-between;
   // 右边留给窗口控制按钮，它们不参与伸缩，不会被内容挤出可视区
-  padding: 0 100px 0 var(--space-5);
+  padding: 0 140px 0 var(--space-5);
   height: 60px;
   background: var(--bg-primary);
   border-bottom: 1px solid var(--border-light);
@@ -337,21 +331,7 @@ const handleRefresh = async () => {
   }
 }
 
-.create-btn {
-  height: 34px;
-  padding: 0 16px;
-  font-size: var(--text-sm);
-  font-weight: var(--font-medium);
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-
-  svg {
-    display: block;
-  }
-}
-
-// 自绘窗口控制按钮
+// 自绘窗口控制按钮：不画分隔线，靠间距区分
 .window-controls {
   position: absolute;
   top: 0;
@@ -359,15 +339,16 @@ const handleRefresh = async () => {
   z-index: 2;
   display: flex;
   align-items: stretch;
+  gap: 8px;
+  padding: 0 8px;
   height: 100%;
-  border-left: 1px solid var(--border-light);
 }
 
 .win-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
+  width: 34px;
   height: 100%;
   border: none;
   background: transparent;
@@ -396,7 +377,7 @@ const handleRefresh = async () => {
 @media (max-width: 768px) {
   // 不换行：右侧 100px 是窗口按钮的位置，换行后会被它们压住
   .app-header {
-    padding-right: 100px;
+    padding-right: 140px;
     gap: var(--space-2);
   }
 

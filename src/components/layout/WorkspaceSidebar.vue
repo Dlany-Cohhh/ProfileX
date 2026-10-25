@@ -370,7 +370,9 @@ const handleDelete = async (workspace: Workspace) => {
     flex: 0 0 auto;
   }
 
-  .header-btn {
+  // Element 默认给相邻按钮加 12px 左外边距，这里靠 gap 控制间距
+  .header-btn.el-button {
+    margin: 0;
     padding: 2px;
     height: 22px;
     color: var(--text-tertiary);
@@ -388,13 +390,25 @@ const handleDelete = async (workspace: Workspace) => {
 
   .sidebar-title {
     flex-direction: column;
+    align-items: center;
     gap: 6px;
     padding: 0 0 var(--space-2);
   }
 
   .title-actions {
     flex-direction: column;
+    align-items: center;
     gap: 6px;
+    width: 100%;
+  }
+
+  // 竖排后统一成 30px 方块并居中，和下面那列图标对齐同一条中轴
+  .title-actions .header-btn.el-button {
+    width: 30px;
+    height: 30px;
+    margin: 0;
+    padding: 0;
+    justify-content: center;
   }
 
   .ws-item {
@@ -408,11 +422,13 @@ const handleDelete = async (workspace: Workspace) => {
   }
 
   .sidebar-footer {
-    align-items: stretch;
+    align-items: center;
   }
 
-  .footer-btn {
-    width: 100%;
+  .footer-btn.el-button {
+    width: 34px;
+    height: 30px;
+    margin: 0;
     padding: 0;
     justify-content: center;
 
