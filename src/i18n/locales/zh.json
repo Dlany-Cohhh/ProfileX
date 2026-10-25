@@ -4,8 +4,6 @@
         "cancel": "取消",
         "confirm": "确定",
         "delete": "删除",
-        "edit": "编辑",
-        "loading": "加载中...",
         "success": "成功",
         "error": "错误",
         "warning": "提醒"
@@ -14,7 +12,6 @@
         "search": "搜索配置或标签...",
         "newProfile": "新建配置",
         "settings": "系统设置",
-        "officialSite": "官方主页",
         "refresh": "刷新",
         "refreshed": "已刷新",
         "stats": "{running} 个运行中 · 共 {total} 个",
@@ -29,7 +26,6 @@
         }
     },
     "main": {
-        "count": "共 {count} 个配置",
         "gridView": "网格模式",
         "listView": "列表模式",
         "noProfiles": "暂无配置，点击右上角按钮创建",
@@ -116,14 +112,10 @@
             "tags": "标签",
             "tagsPlaceholder": "输入标签并回车 (可选)",
             "forwardPortPlaceholder": "不填则不开启转发",
-            "forwardPortTip": "将 CDP 端口转发到 0.0.0.0 以允许局域网/公网访问",
             "disableExtensions": "禁用扩展",
-            "disableExtensionsTip": "启动时添加 --disable-extensions 参数，关闭后可加载已安装扩展",
             "debuggerMode": "Debugger 模式",
-            "debuggerModeTip": "开启后启动时添加 --remote-debugging-port，可用于自动化调试与性能监控",
             "debugPortConfig": "启动端口",
             "debugPortConfigPlaceholder": "不填则自动分配",
-            "debugPortConfigTip": "Chrome 远程调试端口 (CDP)，留空则自动分配可用端口",
             "workspace": "所属工作区",
             "workspacePlaceholder": "选择工作区",
             "template": "套用模板",
@@ -192,11 +184,6 @@
         "title": "备份管理 - {name}",
         "newBackup": "创建新备份",
         "noBackups": "尚未有任何备份",
-        "table": {
-            "time": "备份时间",
-            "size": "占用空间",
-            "actions": "操作"
-        },
         "actions": {
             "restore": "恢复",
             "delete": "删除"
@@ -212,8 +199,6 @@
         "noWorkspaces": "暂无工作区",
         "all": "全部配置",
         "unassigned": "未分组",
-        "new": "新建工作区",
-        "edit": "编辑工作区",
         "form": {
             "titleCreate": "新建工作区",
             "titleEdit": "编辑工作区",
@@ -238,7 +223,6 @@
             "emptyName": "请输入工作区名称",
             "launching": "正在启动工作区中的 {count} 个配置...",
             "nothingToLaunch": "当前没有需要启动的配置",
-            "backing": "正在备份工作区...",
             "backupDone": "已备份 {count} 个配置",
             "backupPartial": "备份完成：{success} 个成功，{failed} 个失败",
             "noProfiles": "当前工作区暂无配置"

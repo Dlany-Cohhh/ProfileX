@@ -4,8 +4,6 @@
         "cancel": "Cancel",
         "confirm": "Confirm",
         "delete": "Delete",
-        "edit": "Edit",
-        "loading": "Loading...",
         "success": "Success",
         "error": "Error",
         "warning": "Warning"
@@ -14,7 +12,6 @@
         "search": "Search profiles or tags...",
         "newProfile": "New Profile",
         "settings": "Settings",
-        "officialSite": "Official Site",
         "refresh": "Refresh",
         "refreshed": "Refreshed",
         "stats": "{running} running · {total} total",
@@ -29,7 +26,6 @@
         }
     },
     "main": {
-        "count": "{count} profiles in total",
         "gridView": "Grid View",
         "listView": "List View",
         "noProfiles": "No profiles found. Click the button above to create one.",
@@ -116,14 +112,10 @@
             "tags": "Tags",
             "tagsPlaceholder": "Enter tags & press Enter (optional)",
             "forwardPortPlaceholder": "Leave empty to disable forwarding",
-            "forwardPortTip": "Forward CDP to 0.0.0.0 to allow LAN/WAN access",
             "disableExtensions": "Disable Extensions",
-            "disableExtensionsTip": "Add --disable-extensions flag on launch. Turn off to load installed extensions",
             "debuggerMode": "Debugger Mode",
-            "debuggerModeTip": "Add --remote-debugging-port on launch for automation, debugging & performance monitoring",
             "debugPortConfig": "Launch Port",
             "debugPortConfigPlaceholder": "Leave empty for auto-allocation",
-            "debugPortConfigTip": "Chrome remote debugging port (CDP). Leave empty to auto-allocate a free port",
             "workspace": "Workspace",
             "workspacePlaceholder": "Select a workspace",
             "template": "Apply Template",
@@ -192,11 +184,6 @@
         "title": "Backups - {name}",
         "newBackup": "Create New Backup",
         "noBackups": "No backups available yet",
-        "table": {
-            "time": "Backup Time",
-            "size": "Size",
-            "actions": "Actions"
-        },
         "actions": {
             "restore": "Restore",
             "delete": "Delete"
@@ -212,8 +199,6 @@
         "noWorkspaces": "No workspaces yet",
         "all": "All Profiles",
         "unassigned": "Unassigned",
-        "new": "New Workspace",
-        "edit": "Edit Workspace",
         "form": {
             "titleCreate": "New Workspace",
             "titleEdit": "Edit Workspace",
@@ -238,7 +223,6 @@
             "emptyName": "Please enter a workspace name",
             "launching": "Launching {count} profiles in this workspace...",
             "nothingToLaunch": "There is no profile to launch",
-            "backing": "Backing up workspace...",
             "backupDone": "Backed up {count} profiles",
             "backupPartial": "Backup finished: {success} succeeded, {failed} failed",
             "noProfiles": "No profiles in this workspace"
