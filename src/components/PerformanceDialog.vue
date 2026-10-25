@@ -212,7 +212,7 @@ const formatDateTimeLocal = (dateStr: string) => {
 }
 
 .status-fast { color: var(--success-color, #67C23A); }
-.status-good { color: var(--primary-color, #409EFF); }
+.status-good { color: var(--primary-500); }
 .status-slow { color: var(--warning-color, #E6A23C); }
 
 .section-title {

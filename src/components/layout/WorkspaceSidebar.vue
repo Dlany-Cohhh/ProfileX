@@ -485,7 +485,7 @@ const handleDelete = async (workspace: Workspace) => {
 
   // 拖拽配置悬停时的可放置提示
   &.drop-target {
-    background: var(--primary-50, rgba(59, 130, 246, 0.12));
+    background: var(--primary-50);
     color: var(--primary-600);
     outline: 1px dashed var(--primary-400);
     outline-offset: -1px;

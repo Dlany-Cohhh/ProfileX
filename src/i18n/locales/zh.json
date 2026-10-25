@@ -228,6 +228,18 @@
         "backupRetention": "备份保留数量",
         "backupRetentionTip": "每个配置最多保留最近 N 个备份，超出后自动删除最旧的；填 0 表示不限制",
         "migrating": "正在搬迁 {done}/{total} 个配置目录...",
-        "saved": "设置已保存"
+        "saved": "设置已保存",
+        "accent": "主题色",
+        "accentTip": "点一下即刻生效，只保存在本机。会同时作用于按钮、选中态、侧边栏等所有蓝色元素，深浅色模式各自适配。",
+        "accentColors": {
+            "blue": "飞书蓝（默认）",
+            "indigo": "靛蓝",
+            "cyan": "青",
+            "green": "绿",
+            "teal": "薄荷",
+            "purple": "紫",
+            "pink": "粉",
+            "orange": "橙"
+        }
     }
 }

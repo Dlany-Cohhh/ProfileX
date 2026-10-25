@@ -38,6 +38,26 @@
           <div class="form-tip">{{ $t('settings.backupRetentionTip') }}</div>
         </el-form-item>
 
+        <el-form-item :label="$t('settings.accent')">
+          <div class="accent-row">
+            <button
+              v-for="preset in ACCENT_PRESETS"
+              :key="preset.color"
+              type="button"
+              class="accent-swatch"
+              :class="{ active: isAccent(preset.color) }"
+              :style="{ background: preset.color, '--swatch': preset.color }"
+              :title="$t(`settings.accentColors.${preset.key}`)"
+              @click="themeStore.setAccent(preset.color)"
+            >
+              <el-icon v-if="isAccent(preset.color)"><Check /></el-icon>
+            </button>
+
+            <el-color-picker v-model="customAccent" class="accent-custom" @change="themeStore.setAccent" />
+          </div>
+          <div class="form-tip">{{ $t('settings.accentTip') }}</div>
+        </el-form-item>
+
         <div v-if="migrating" class="migrate-progress">
           <el-progress :percentage="progressPercent" :stroke-width="14" striped striped-flow />
           <div class="form-tip">
@@ -66,14 +86,30 @@
 import { ref, reactive, watch, computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { ElMessage } from 'element-plus';
+import { Check } from '@element-plus/icons-vue';
 import { listen } from '@tauri-apps/api/event';
 import { api } from '../api';
+import { useThemeStore } from '../store/theme';
+import { ACCENT_PRESETS } from '../utils/accent';
 import type { PathsInfo } from '../types';
 
 const props = defineProps<{ modelValue: boolean }>();
 const emit = defineEmits(['update:modelValue', 'changed']);
 
 const { t } = useI18n();
+const themeStore = useThemeStore();
+
+/** 自定义取色器的值，跟着 store 走，点预设时也会同步显示 */
+const customAccent = ref(themeStore.accent);
+watch(
+  () => themeStore.accent,
+  (val) => {
+    customAccent.value = val;
+  }
+);
+
+/** 区分大小写地比对当前主题色 */
+const isAccent = (color: string) => themeStore.accent.toLowerCase() === color.toLowerCase();
 
 const loading = ref(false);
 const saving = ref(false);
@@ -222,6 +258,40 @@ const handleSave = async () => {
   display: flex;
   gap: var(--space-2);
   width: 100%;
+}
+
+.accent-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.accent-swatch {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+
+  &:hover {
+    transform: scale(1.12);
+  }
+
+  // 选中环用色块自己的颜色，浅色背景下也能看清
+  &.active {
+    box-shadow: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--swatch);
+  }
+}
+
+.accent-custom {
+  margin-left: var(--space-1);
 }
 
 .form-tip {

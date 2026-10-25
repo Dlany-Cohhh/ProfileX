@@ -228,6 +228,18 @@
         "backupRetention": "Backups to keep",
         "backupRetentionTip": "Keeps at most the N most recent backups per profile and deletes older ones. 0 means unlimited.",
         "migrating": "Moving {done}/{total} profile directories...",
-        "saved": "Settings saved"
+        "saved": "Settings saved",
+        "accent": "Accent Color",
+        "accentTip": "Applies instantly and is stored on this device only. Buttons, selection and sidebar all follow it, tuned separately for light and dark mode.",
+        "accentColors": {
+            "blue": "Feishu Blue (default)",
+            "indigo": "Indigo",
+            "cyan": "Cyan",
+            "green": "Green",
+            "teal": "Teal",
+            "purple": "Purple",
+            "pink": "Pink",
+            "orange": "Orange"
+        }
     }
 }
