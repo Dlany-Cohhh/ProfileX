@@ -38,6 +38,7 @@
         <h3 class="profile-name" :title="profile.name">{{ profile.name }}</h3>
         <div class="profile-tags" v-if="isTemplate || tagList.length > 0">
           <span v-if="isTemplate" class="profile-tag template-tag">
+            <Copy :size="11" :stroke-width="2" />
             {{ $t('profile.template.badge') }}
           </span>
           <span
@@ -124,6 +125,7 @@ import {
   Check,
   Coin
 } from '@element-plus/icons-vue';
+import { Copy } from 'lucide-vue-next';
 import type { Profile } from '../types';
 import { useProfileStore } from '../store/profile';
 import { formatSize } from '../utils/format';
@@ -351,9 +353,14 @@ const handleLaunch = async () => {
   z-index: 1;
 }
 
+// 模板标记改成中性描边胶囊：不再跟主按钮抢蓝色
 .template-tag {
-  background: rgba(139, 92, 246, 0.14);
-  color: var(--primary-600, #7c3aed);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: transparent;
+  border: 1px solid var(--bg-tertiary);
+  color: var(--text-tertiary);
   font-weight: var(--font-medium);
 }
 

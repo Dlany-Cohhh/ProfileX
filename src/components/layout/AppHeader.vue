@@ -23,76 +23,76 @@
         clearable
       >
         <template #prefix>
-          <el-icon><Search /></el-icon>
+          <Search :size="15" :stroke-width="1.75" />
         </template>
       </el-input>
     </div>
 
     <div class="header-right">
-      <!-- 语言切换 -->
-      <el-dropdown trigger="click" @command="handleLanguageChange">
-        <button class="icon-btn">
-          <el-icon><i class="el-icon-language"></i><span class="lang-text">{{ currentLocale === 'zh' ? '中' : 'EN' }}</span></el-icon>
-        </button>
-        <template #dropdown>
-          <el-dropdown-menu>
-            <el-dropdown-item command="zh" :disabled="currentLocale === 'zh'">简体中文</el-dropdown-item>
-            <el-dropdown-item command="en" :disabled="currentLocale === 'en'">English</el-dropdown-item>
-          </el-dropdown-menu>
-        </template>
-      </el-dropdown>
+      <!-- 同组图标靠得更紧，与视图切换、主按钮拉开层级 -->
+      <div class="icon-group">
+        <!-- 语言切换 -->
+        <el-dropdown trigger="click" @command="handleLanguageChange">
+          <button class="icon-btn">
+            <Languages :size="16" :stroke-width="1.75" />
+          </button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="zh" :disabled="currentLocale === 'zh'">简体中文</el-dropdown-item>
+              <el-dropdown-item command="en" :disabled="currentLocale === 'en'">English</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
 
-      <el-tooltip :content="$t('header.refresh')" placement="bottom" :show-after="300">
-        <button class="icon-btn" :class="{ spinning: refreshing }" @click="handleRefresh">
-          <el-icon><Refresh /></el-icon>
-        </button>
-      </el-tooltip>
+        <el-tooltip :content="$t('header.refresh')" placement="bottom" :show-after="300">
+          <button class="icon-btn" :class="{ spinning: refreshing }" @click="handleRefresh">
+            <RotateCw :size="16" :stroke-width="1.75" />
+          </button>
+        </el-tooltip>
 
-      <el-tooltip :content="$t('header.settings')" placement="bottom" :show-after="300">
-        <button class="icon-btn" @click="$emit('settings')">
-          <el-icon><Setting /></el-icon>
-        </button>
-      </el-tooltip>
+        <el-tooltip :content="$t('header.settings')" placement="bottom" :show-after="300">
+          <button class="icon-btn" @click="$emit('settings')">
+            <Settings2 :size="16" :stroke-width="1.75" />
+          </button>
+        </el-tooltip>
 
-      <el-tooltip :content="themeStore.isDark ? $t('header.theme.light') : $t('header.theme.dark')" placement="bottom" :show-after="300">
-        <button class="icon-btn" @click="themeStore.toggleTheme">
-          <el-icon>
-            <Sunny v-if="themeStore.isDark" />
-            <Moon v-else />
-          </el-icon>
-        </button>
-      </el-tooltip>
+        <el-tooltip :content="themeStore.isDark ? $t('header.theme.light') : $t('header.theme.dark')" placement="bottom" :show-after="300">
+          <button class="icon-btn" @click="themeStore.toggleTheme">
+            <Moon v-if="themeStore.isDark" :size="16" :stroke-width="1.75" />
+            <Sun v-else :size="16" :stroke-width="1.75" />
+          </button>
+        </el-tooltip>
+      </div>
 
       <el-radio-group v-model="profileStore.viewMode" size="small" class="view-toggle">
         <el-tooltip :content="$t('main.gridView')" placement="bottom">
           <el-radio-button label="grid">
-            <el-icon><Grid /></el-icon>
+            <LayoutGrid :size="15" :stroke-width="1.75" />
           </el-radio-button>
         </el-tooltip>
         <el-tooltip :content="$t('main.listView')" placement="bottom">
           <el-radio-button label="list">
-            <el-icon><List /></el-icon>
+            <List :size="15" :stroke-width="1.75" />
           </el-radio-button>
         </el-tooltip>
       </el-radio-group>
 
       <el-button type="primary" @click="$emit('create')" class="create-btn">
-        <el-icon><Plus /></el-icon>
+        <Plus :size="16" :stroke-width="2" />
         <span>{{ $t('header.newProfile') }}</span>
       </el-button>
-
     </div>
 
     <!-- 无边框窗口的自绘控制按钮：固定在右上角，不参与右侧那一排的伸缩 -->
     <div class="window-controls">
       <button class="win-btn" :title="$t('header.window.minimize')" @click="runAction('minimize')">
-        <svg viewBox="0 0 10 10" width="10" height="10"><path d="M0 5h10" stroke="currentColor" stroke-width="1" /></svg>
+        <Minus :size="12" :stroke-width="1" />
       </button>
       <button class="win-btn" :title="$t('header.window.maximize')" @click="runAction('maximize')">
-        <svg viewBox="0 0 10 10" width="10" height="10"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1" /></svg>
+        <Square :size="11" :stroke-width="1" />
       </button>
       <button class="win-btn close" :title="$t('header.window.close')" @click="runAction('close')">
-        <svg viewBox="0 0 10 10" width="10" height="10"><path d="M0 0l10 10M10 0L0 10" stroke="currentColor" stroke-width="1" /></svg>
+        <X :size="13" :stroke-width="1" />
       </button>
     </div>
   </header>
@@ -101,7 +101,20 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { Search, Grid, List, Plus, Sunny, Moon, Refresh, Setting } from '@element-plus/icons-vue';
+import {
+  Search,
+  Languages,
+  RotateCw,
+  Settings2,
+  Moon,
+  Sun,
+  LayoutGrid,
+  List,
+  Plus,
+  Minus,
+  Square,
+  X,
+} from 'lucide-vue-next';
 import { ElMessage } from 'element-plus';
 import { api } from '../../api';
 import { useProfileStore } from '../../store/profile';
@@ -199,11 +212,11 @@ const handleRefresh = async () => {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 38px;
-    height: 38px;
+    width: 34px;
+    height: 34px;
     border-radius: var(--radius-lg);
     overflow: hidden;
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25);
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.22);
     transition: all 0.3s ease;
 
     &:hover {
@@ -225,7 +238,7 @@ const handleRefresh = async () => {
   }
 
   &-title {
-    font-size: var(--text-base);
+    font-size: 14px;
     font-weight: var(--font-semibold);
     color: var(--text-primary);
     line-height: 1.2;
@@ -240,10 +253,11 @@ const handleRefresh = async () => {
 }
 
 .header-center {
-  // 空间不足时先压缩搜索框，保证右侧按钮完整可见
-  flex: 1 1 0;
-  min-width: 0;
-  max-width: 400px;
+  // 不抢空间：配合 outer 的 space-between，搜索框落在品牌区与操作区之间，
+  // 窄窗口时优先压缩它
+  flex: 0 1 480px;
+  min-width: 220px;
+  max-width: 480px;
   margin: 0 var(--space-4);
 }
 
@@ -286,9 +300,17 @@ const handleRefresh = async () => {
 .header-right {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  // 组与组之间 16px
+  gap: var(--space-4);
   // 窗口控制按钮在最右侧，绝不能被挤到窗口外面去
   flex-shrink: 0;
+}
+
+// 同组图标间距 4px，比组间距小，形成层级
+.icon-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .icon-btn {
@@ -305,10 +327,9 @@ const handleRefresh = async () => {
   border-radius: 50%;
   transition: all 0.2s ease;
 
-  .lang-text {
-    font-size: 11px;
-    font-weight: var(--font-bold);
-    font-family: var(--font-mono, monospace);
+  // Lucide 渲染的是 svg，确保它不吃到行高
+  svg {
+    display: block;
   }
 
   &:hover {
@@ -320,7 +341,7 @@ const handleRefresh = async () => {
     transform: scale(0.95);
   }
 
-  &.spinning .el-icon {
+  &.spinning svg {
     animation: icon-spin 0.8s linear infinite;
   }
 }
@@ -331,14 +352,41 @@ const handleRefresh = async () => {
   }
 }
 
+// 视图切换降权：去掉整块蓝色，激活态改成浅蓝底 + 主色线条，
+// 蓝色只留给「新建配置」这一个主操作
 .view-toggle {
   :deep(.el-radio-button__inner) {
-    padding: 6px 12px;
-    font-size: var(--text-sm);
+    padding: 6px 10px;
+    border: none;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--text-tertiary);
+    box-shadow: none;
+    transition: all var(--transition-fast);
 
-    .el-icon {
-      font-size: 16px;
+    svg {
+      display: block;
     }
+
+    &:hover {
+      color: var(--text-primary);
+      background: var(--bg-hover);
+    }
+  }
+
+  // 去掉边框后要还原 EP 为了叠边框用的负 margin
+  :deep(.el-radio-button:not(:first-child) .el-radio-button__inner) {
+    margin-left: 0;
+    border-left: none;
+  }
+
+  // 同时压住 Element 自带的选中样式（它用 :checked + __inner，权重不低）
+  :deep(.el-radio-button.is-active .el-radio-button__inner),
+  :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
+    background: var(--primary-50);
+    color: var(--primary-500);
+    border-color: transparent;
+    box-shadow: none;
   }
 }
 
@@ -351,8 +399,8 @@ const handleRefresh = async () => {
   align-items: center;
   gap: var(--space-1);
 
-  .el-icon {
-    font-size: 16px;
+  svg {
+    display: block;
   }
 }
 

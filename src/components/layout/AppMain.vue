@@ -39,7 +39,7 @@
         </el-checkbox>
         <span class="toolbar-hint">{{ $t('main.selectAllHint', { n: visibleIds.length }) }}</span>
         <el-button class="toolbar-import" plain :loading="importing" @click="handleImport">
-          <el-icon><Upload /></el-icon>
+          <Import :size="15" :stroke-width="1.75" />
           {{ $t('main.import') }}
         </el-button>
       </div>
@@ -132,7 +132,8 @@ import { useWorkspaceStore } from '../../store/workspace';
 import ProfileCard from '../ProfileCard.vue';
 import { api } from '../../api';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { VideoPlay, Brush, Folder, Upload } from '@element-plus/icons-vue';
+import { VideoPlay, Brush, Folder } from '@element-plus/icons-vue';
+import { Import } from 'lucide-vue-next';
 import { open } from '@tauri-apps/plugin-dialog';
 import { formatSize } from '../../utils/format';
 import { PROFILE_REORDER_TYPE } from '../../utils/dnd';
