@@ -401,8 +401,9 @@ const handleRefresh = async () => {
   z-index: 2;
   display: flex;
   align-items: stretch;
-  gap: 8px;
-  padding: 0 8px;
+  gap: 6px;
+  // 右侧不留内边距：关闭按钮的悬停底色要贴到窗口边缘，不能露出一条白边
+  padding: 0 0 0 8px;
   height: 100%;
 }
 
@@ -412,20 +413,27 @@ const handleRefresh = async () => {
   justify-content: center;
   width: 34px;
   height: 100%;
+  padding: 0;
   border: none;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-tertiary);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: background var(--transition-fast), color var(--transition-fast);
 
   &:hover {
     background: var(--bg-hover);
     color: var(--text-primary);
   }
 
-  &.close:hover {
-    background: var(--danger-500);
-    color: #fff;
+  // 关闭键贴边：圆角只在左侧，右侧跟窗口边缘齐平
+  &.close {
+    border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+
+    &:hover {
+      background: var(--danger-500);
+      color: #fff;
+    }
   }
 }
 

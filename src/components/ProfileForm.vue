@@ -63,18 +63,17 @@
         </el-form-item>
       </div>
 
-      <div class="form-row">
-        <el-form-item :label="$t('profile.form.debuggerMode')" class="toggle-item">
-          <div class="toggle-row">
-            <el-switch v-model="form.debugger_mode" />
-          </div>
-        </el-form-item>
+      <!-- 两个开关做成并排的小卡片，和下面的「启动参数」保持同一套外观 -->
+      <div class="toggle-grid">
+        <div class="toggle-card">
+          <span class="toggle-card-label">{{ $t('profile.form.debuggerMode') }}</span>
+          <el-switch v-model="form.debugger_mode" />
+        </div>
 
-        <el-form-item :label="$t('profile.form.disableExtensions')" class="toggle-item">
-          <div class="toggle-row">
-            <el-switch v-model="form.disable_extensions" />
-          </div>
-        </el-form-item>
+        <div class="toggle-card">
+          <span class="toggle-card-label">{{ $t('profile.form.disableExtensions') }}</span>
+          <el-switch v-model="form.disable_extensions" />
+        </div>
       </div>
 
       <template v-if="form.debugger_mode">
@@ -229,13 +228,13 @@
         </div>
       </el-form-item>
 
-      <el-form-item class="toggle-item">
-        <div class="toggle-row">
-          <el-switch v-model="showLaunchArgs" />
-          <span>{{ $t('profile.form.launchArgs') }}</span>
+      <div class="toggle-card wide">
+        <div class="toggle-card-text">
+          <span class="toggle-card-label">{{ $t('profile.form.launchArgs') }}</span>
+          <span class="toggle-card-desc">{{ $t('profile.form.launchArgsTip') }}</span>
         </div>
-        <div class="form-tip">{{ $t('profile.form.launchArgsTip') }}</div>
-      </el-form-item>
+        <el-switch v-model="showLaunchArgs" />
+      </div>
 
       <template v-if="showLaunchArgs">
         <div class="form-row">
@@ -736,6 +735,9 @@ const handleSubmit = async () => {
 
 :deep(.el-dialog__body) {
   padding: var(--space-4) var(--space-5);
+  // 表单比窗口高时在弹窗内部滚动，别把标题栏顶出可视区
+  max-height: calc(100vh - 210px);
+  overflow-y: auto;
 }
 
 :deep(.el-dialog__footer) {
@@ -753,16 +755,65 @@ const handleSubmit = async () => {
     font-weight: var(--font-medium);
     color: var(--text-secondary);
     font-size: var(--text-xs);
-    padding-bottom: var(--space-1);
+    padding-bottom: 6px;
     line-height: 1.4;
   }
 
-  :deep(.el-input__wrapper) {
+  // 输入框 / 下拉 / 文本域统一成「浅底 + 细边 + 8px 圆角」，聚焦时变白底加主色描边
+  :deep(.el-input__wrapper),
+  :deep(.el-select__wrapper),
+  :deep(.el-textarea__inner) {
     border-radius: var(--radius-lg);
-    padding: var(--space-1) var(--space-3);
+    background: var(--bg-secondary);
+    box-shadow: 0 0 0 1px var(--border-light) inset;
+    transition: background var(--transition-fast), box-shadow var(--transition-fast);
 
-    &.is-focus {
-      box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.1);
+    &:hover {
+      box-shadow: 0 0 0 1px var(--border-medium) inset;
+    }
+  }
+
+  :deep(.el-input__wrapper),
+  :deep(.el-select__wrapper) {
+    min-height: 34px;
+  }
+
+  :deep(.el-input__wrapper) {
+    padding: 0 var(--space-3);
+  }
+
+  // 多选下拉换行时要留出内边距，否则标签会贴着边框
+  :deep(.el-select__wrapper) {
+    padding: 3px 10px;
+  }
+
+  :deep(.el-input__wrapper.is-focus),
+  :deep(.el-select__wrapper.is-focused),
+  :deep(.el-textarea__inner:focus) {
+    background: var(--bg-primary);
+    box-shadow: 0 0 0 1px var(--primary-400) inset, 0 0 0 3px var(--primary-100);
+  }
+
+  :deep(.el-textarea__inner) {
+    padding: 10px var(--space-3);
+    font-size: var(--text-sm);
+    line-height: 1.6;
+    // 备注框固定两行高度，允许手动拉高但别让默认高度跳来跳去
+    resize: vertical;
+  }
+
+  // 标签做成胶囊，跟列表卡片里的标签呼应
+  :deep(.el-select__selection .el-tag) {
+    height: 22px;
+    padding: 0 8px;
+    border-radius: var(--radius-full);
+    background: var(--primary-50);
+    border-color: var(--primary-100);
+    color: var(--primary-600);
+    font-size: var(--text-xs);
+
+    .el-tag__close {
+      color: var(--primary-600);
     }
   }
 
@@ -786,23 +837,6 @@ const handleSubmit = async () => {
     min-width: 0;
   }
 
-  // Toggle items - keep label + switch inline, no stacking
-  .toggle-item {
-    flex: 1;
-
-    :deep(.el-form-item__content) {
-      display: flex;
-      align-items: center;
-      min-height: 32px;
-    }
-  }
-
-  .toggle-row {
-    display: flex;
-    align-items: center;
-    height: 32px;
-  }
-
   .icon-item {
     flex-shrink: 0;
     margin-bottom: 0;
@@ -811,6 +845,60 @@ const handleSubmit = async () => {
       line-height: 1;
     }
   }
+}
+
+// 开关卡片：调试模式 / 禁用扩展 并排，「启动参数」独占一行
+.toggle-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.toggle-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: 40px;
+  padding: 8px var(--space-3) 8px var(--space-4);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  background: var(--bg-primary);
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+
+  &:hover {
+    border-color: var(--border-medium);
+    background: var(--bg-secondary);
+  }
+
+  // 独占一行的那个（启动参数）多留一点下边距，跟输入框组分开
+  &.wide {
+    margin-bottom: var(--space-3);
+  }
+
+  :deep(.el-switch) {
+    flex-shrink: 0;
+  }
+}
+
+.toggle-card-label {
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.toggle-card-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.toggle-card-desc {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  line-height: 1.4;
 }
 
 .icon-selector {
@@ -932,16 +1020,17 @@ const handleSubmit = async () => {
 }
 
 .color-swatch {
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   padding: 0;
   border: 1px solid var(--border-light);
   border-radius: var(--radius-full);
   cursor: pointer;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 
-  &:hover {
+  &:hover:not(.active) {
     transform: scale(1.12);
+    box-shadow: 0 0 0 2px var(--bg-primary), 0 0 0 3px var(--border-medium);
   }
 
   // 选中：底色留一圈缝隙，再加一层主色环，避免和色块本身糊在一起

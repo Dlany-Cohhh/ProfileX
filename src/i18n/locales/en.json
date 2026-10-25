@@ -260,7 +260,9 @@
         "accentTip": "Applies instantly and is stored on this device only. Buttons, selection and sidebar all follow it, tuned separately for light and dark mode.",
         "behavior": "Window behavior",
         "closeToTray": "Minimize to tray when closing",
+        "closeToTrayTip": "Closing keeps the app running; reopen it from the tray icon",
         "autostart": "Launch at startup",
+        "autostartTip": "Starts silently in the tray after you sign in",
         "trayTip": "The app keeps running in the background after you close the window. Click the tray icon to bring it back; to quit completely, use \"Quit\" in the tray menu.",
         "accentColors": {
             "blue": "Feishu Blue (default)",

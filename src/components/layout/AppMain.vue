@@ -37,117 +37,121 @@
         >
           {{ $t('main.selectAll') }}
         </el-checkbox>
-        <!-- 视图切换放在导入备份左侧，跟列表内容属于同一层 -->
-        <div class="view-toggle">
-          <el-tooltip :content="$t('main.gridView')" placement="bottom" :show-after="300">
-            <button
-              class="view-btn"
-              :class="{ active: profileStore.viewMode === 'grid' }"
-              @click="profileStore.viewMode = 'grid'"
+
+        <!-- 右侧一组：全部关闭 + 排序筛选 + 视图切换 + 导入 + 新建 -->
+        <div class="toolbar-actions">
+          <el-button
+            v-if="profileStore.runningCount > 0"
+            class="close-all-btn"
+            plain
+            :loading="closingAll"
+            @click="handleCloseAll"
+          >
+            <el-icon><SwitchButton /></el-icon>
+            {{ $t('main.closeAll', { n: profileStore.runningCount }) }}
+          </el-button>
+
+          <!-- 排序 / 筛选：胶囊外壳 + 无边框下拉，紧贴视图切换左边 -->
+          <div class="filter-group">
+            <div class="filter-chip" :class="{ 'is-active': profileStore.sortBy !== 'custom' }">
+              <ArrowUpDown :size="13" :stroke-width="1.75" class="chip-icon" />
+              <el-select
+                v-model="profileStore.sortBy"
+                class="chip-select"
+                size="small"
+                popper-class="app-filter-popper"
+              >
+                <el-option
+                  v-for="opt in sortOptions"
+                  :key="opt.value"
+                  :label="opt.label"
+                  :value="opt.value"
+                />
+              </el-select>
+            </div>
+
+            <!-- 手动顺序下没有升降序的概念，直接不显示 -->
+            <el-tooltip
+              v-if="profileStore.sortBy !== 'custom'"
+              :content="profileStore.sortDir === 'asc' ? $t('main.sortAsc') : $t('main.sortDesc')"
+              placement="bottom"
+              :show-after="300"
             >
-              <LayoutGrid :size="15" :stroke-width="1.75" />
-            </button>
-          </el-tooltip>
-          <el-tooltip :content="$t('main.listView')" placement="bottom" :show-after="300">
-            <button
-              class="view-btn"
-              :class="{ active: profileStore.viewMode === 'list' }"
-              @click="profileStore.viewMode = 'list'"
-            >
-              <List :size="15" :stroke-width="1.75" />
-            </button>
-          </el-tooltip>
+              <button class="chip-btn" @click="toggleSortDir">
+                <ArrowUp v-if="profileStore.sortDir === 'asc'" :size="14" :stroke-width="2" />
+                <ArrowDown v-else :size="14" :stroke-width="2" />
+              </button>
+            </el-tooltip>
+
+            <div class="filter-chip" :class="{ 'is-active': profileStore.statusFilter !== 'all' }">
+              <Activity :size="13" :stroke-width="1.75" class="chip-icon" />
+              <el-select
+                v-model="profileStore.statusFilter"
+                class="chip-select"
+                size="small"
+                popper-class="app-filter-popper"
+              >
+                <el-option
+                  v-for="opt in statusOptions"
+                  :key="opt.value"
+                  :label="opt.label"
+                  :value="opt.value"
+                />
+              </el-select>
+            </div>
+
+            <div class="filter-chip" :class="{ 'is-active': !!profileStore.tagFilter }">
+              <Tag :size="13" :stroke-width="1.75" class="chip-icon" />
+              <el-select
+                v-model="profileStore.tagFilter"
+                class="chip-select"
+                size="small"
+                clearable
+                :placeholder="$t('main.filterTag')"
+                popper-class="app-filter-popper"
+              >
+                <el-option
+                  v-for="tag in profileStore.existingTags"
+                  :key="tag"
+                  :label="tag"
+                  :value="tag"
+                />
+              </el-select>
+            </div>
+          </div>
+
+          <!-- 视图切换放在导入备份左侧，跟列表内容属于同一层 -->
+          <div class="view-toggle">
+            <el-tooltip :content="$t('main.gridView')" placement="bottom" :show-after="300">
+              <button
+                class="view-btn"
+                :class="{ active: profileStore.viewMode === 'grid' }"
+                @click="profileStore.viewMode = 'grid'"
+              >
+                <LayoutGrid :size="15" :stroke-width="1.75" />
+              </button>
+            </el-tooltip>
+            <el-tooltip :content="$t('main.listView')" placement="bottom" :show-after="300">
+              <button
+                class="view-btn"
+                :class="{ active: profileStore.viewMode === 'list' }"
+                @click="profileStore.viewMode = 'list'"
+              >
+                <List :size="15" :stroke-width="1.75" />
+              </button>
+            </el-tooltip>
+          </div>
+
+          <el-button class="toolbar-import" plain :loading="importing" @click="handleImport">
+            <Import :size="15" :stroke-width="1.75" />
+            {{ $t('main.import') }}
+          </el-button>
+
+          <el-button type="primary" class="toolbar-create" @click="$emit('create')">
+            <Plus :size="16" :stroke-width="2" />
+            {{ $t('header.newProfile') }}
+          </el-button>
         </div>
-
-        <el-button class="toolbar-import" plain :loading="importing" @click="handleImport">
-          <Import :size="15" :stroke-width="1.75" />
-          {{ $t('main.import') }}
-        </el-button>
-
-        <el-button type="primary" class="toolbar-create" @click="$emit('create')">
-          <Plus :size="16" :stroke-width="2" />
-          {{ $t('header.newProfile') }}
-        </el-button>
-      </div>
-
-      <!-- 排序 / 筛选：独立一行，胶囊外壳 + 无边框下拉 -->
-      <div class="filter-row">
-        <div class="filter-chip" :class="{ 'is-active': profileStore.sortBy !== 'custom' }">
-          <ArrowUpDown :size="13" :stroke-width="1.75" class="chip-icon" />
-          <el-select
-            v-model="profileStore.sortBy"
-            class="chip-select"
-            size="small"
-            popper-class="app-filter-popper"
-          >
-            <el-option
-              v-for="opt in sortOptions"
-              :key="opt.value"
-              :label="opt.label"
-              :value="opt.value"
-            />
-          </el-select>
-        </div>
-
-        <!-- 手动顺序下没有升降序的概念，直接不显示 -->
-        <el-tooltip
-          v-if="profileStore.sortBy !== 'custom'"
-          :content="profileStore.sortDir === 'asc' ? $t('main.sortAsc') : $t('main.sortDesc')"
-          placement="bottom"
-          :show-after="300"
-        >
-          <button class="chip-btn" @click="toggleSortDir">
-            <ArrowUp v-if="profileStore.sortDir === 'asc'" :size="14" :stroke-width="2" />
-            <ArrowDown v-else :size="14" :stroke-width="2" />
-          </button>
-        </el-tooltip>
-
-        <div class="filter-chip" :class="{ 'is-active': profileStore.statusFilter !== 'all' }">
-          <Activity :size="13" :stroke-width="1.75" class="chip-icon" />
-          <el-select
-            v-model="profileStore.statusFilter"
-            class="chip-select"
-            size="small"
-            popper-class="app-filter-popper"
-          >
-            <el-option
-              v-for="opt in statusOptions"
-              :key="opt.value"
-              :label="opt.label"
-              :value="opt.value"
-            />
-          </el-select>
-        </div>
-
-        <div class="filter-chip" :class="{ 'is-active': !!profileStore.tagFilter }">
-          <Tag :size="13" :stroke-width="1.75" class="chip-icon" />
-          <el-select
-            v-model="profileStore.tagFilter"
-            class="chip-select"
-            size="small"
-            clearable
-            :placeholder="$t('main.filterTag')"
-            popper-class="app-filter-popper"
-          >
-            <el-option
-              v-for="tag in profileStore.existingTags"
-              :key="tag"
-              :label="tag"
-              :value="tag"
-            />
-          </el-select>
-        </div>
-
-        <el-button
-          v-if="profileStore.runningCount > 0"
-          class="close-all-btn"
-          plain
-          :loading="closingAll"
-          @click="handleCloseAll"
-        >
-          <el-icon><SwitchButton /></el-icon>
-          {{ $t('main.closeAll', { n: profileStore.runningCount }) }}
-        </el-button>
       </div>
 
       <div
@@ -639,6 +643,9 @@ const handleDelete = async (profile: Profile) => {
   align-items: center;
   gap: var(--space-3);
   margin-bottom: var(--space-3);
+  // 窗口太窄时让筛选胶囊换到下一行，而不是把右边的按钮挤出去
+  flex-wrap: wrap;
+  row-gap: var(--space-2);
 
   :deep(.el-checkbox__label) {
     font-size: var(--text-sm);
@@ -646,13 +653,22 @@ const handleDelete = async (profile: Profile) => {
   }
 }
 
-// 排序 / 筛选：单独一行，左边胶囊右边「全部关闭」
-.filter-row {
+// 筛选胶囊跟按钮同组，靠 toolbar-actions 的 margin-left:auto 一起推到右边
+.filter-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+  // 和左边那组按钮拉开一点距离，视觉上分成「筛选」和「动作」
+  margin-left: var(--space-1);
+}
+
+.toolbar-actions {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  margin-bottom: var(--space-4);
-  flex-wrap: wrap;
+  margin-left: auto;
 }
 
 // 胶囊外壳负责边框和底色，里面的 el-select 完全透明，
@@ -660,16 +676,17 @@ const handleDelete = async (profile: Profile) => {
 .filter-chip {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   height: 30px;
-  padding: 0 8px 0 10px;
-  border: 1px solid transparent;
+  padding: 0 6px 0 8px;
+  border: 1px solid var(--border-light);
   border-radius: var(--radius-full);
-  background: var(--bg-secondary);
+  background: var(--bg-primary);
   transition: background var(--transition-fast), border-color var(--transition-fast);
 
   &:hover {
     background: var(--bg-hover);
+    border-color: var(--border-medium);
   }
 
   // 非默认值才点亮，一眼能看出「当前有筛选」
@@ -687,12 +704,29 @@ const handleDelete = async (profile: Profile) => {
     }
   }
 
+  // 让下拉宽度跟着文字走：EP 的 selection 是 flex:1（basis 0），
+  // 父级宽度 auto 时会被压成 0，只剩图标和箭头，所以这里把 basis 改回 auto
   :deep(.el-select) {
     width: auto;
   }
 
+  :deep(.el-select__selection) {
+    flex: 0 1 auto;
+  }
+
+  // 占位文字是绝对定位的，不参与撑宽；空值时 EP 会挂 is-transparent，
+  // 默认半透明压在下层，这里统一改成正常流，空态才看得见文字
+  :deep(.el-select__placeholder) {
+    position: static;
+    transform: none;
+    z-index: auto;
+    width: auto;
+    color: var(--text-tertiary);
+  }
+
   :deep(.el-select__wrapper) {
     min-height: 24px;
+    min-width: 48px;
     padding: 0;
     background: transparent;
     box-shadow: none !important;
@@ -702,6 +736,11 @@ const handleDelete = async (profile: Profile) => {
   :deep(.el-select__selected-item) {
     font-size: var(--text-sm);
     color: var(--text-secondary);
+  }
+
+  // 空值时的占位符比正常选中值淡一档（EP 用 is-transparent 标出这一状态）
+  :deep(.el-select__placeholder.is-transparent) {
+    color: var(--text-tertiary);
   }
 
   :deep(.el-select__suffix),
@@ -729,9 +768,9 @@ const handleDelete = async (profile: Profile) => {
   width: 30px;
   height: 30px;
   padding: 0;
-  border: 1px solid transparent;
+  border: 1px solid var(--border-light);
   border-radius: var(--radius-full);
-  background: var(--bg-secondary);
+  background: var(--bg-primary);
   color: var(--text-secondary);
   cursor: pointer;
   transition: background var(--transition-fast), color var(--transition-fast);
@@ -743,7 +782,6 @@ const handleDelete = async (profile: Profile) => {
 }
 
 .close-all-btn {
-  margin-left: auto;
   color: var(--danger-600);
   border-color: var(--danger-200);
 
@@ -756,7 +794,6 @@ const handleDelete = async (profile: Profile) => {
 
 // 视图切换：靠右贴住导入按钮，和它算一组
 .view-toggle {
-  margin-left: auto;
   display: flex;
   align-items: center;
   gap: 2px;

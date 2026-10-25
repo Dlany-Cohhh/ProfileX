@@ -59,13 +59,22 @@
         </el-form-item>
 
         <el-form-item :label="$t('settings.behavior')">
-          <div class="switch-row">
-            <el-switch v-model="closeToTray" @change="saveTraySettings" />
-            <span class="switch-label">{{ $t('settings.closeToTray') }}</span>
-          </div>
-          <div class="switch-row">
-            <el-switch v-model="autostart" @change="saveTraySettings" />
-            <span class="switch-label">{{ $t('settings.autostart') }}</span>
+          <div class="switch-list">
+            <div class="switch-item">
+              <div class="switch-text">
+                <span class="switch-label">{{ $t('settings.closeToTray') }}</span>
+                <span class="switch-desc">{{ $t('settings.closeToTrayTip') }}</span>
+              </div>
+              <el-switch v-model="closeToTray" @change="saveTraySettings" />
+            </div>
+
+            <div class="switch-item">
+              <div class="switch-text">
+                <span class="switch-label">{{ $t('settings.autostart') }}</span>
+                <span class="switch-desc">{{ $t('settings.autostartTip') }}</span>
+              </div>
+              <el-switch v-model="autostart" @change="saveTraySettings" />
+            </div>
           </div>
           <div class="form-tip">{{ $t('settings.trayTip') }}</div>
         </el-form-item>
@@ -334,16 +343,52 @@ const handleSave = async () => {
   margin-left: var(--space-1);
 }
 
-.switch-row {
+// 开关项：整行做成一栏一栏的列表，左边标题+说明，右边开关，互不打架
+.switch-list {
+  display: flex;
+  flex-direction: column;
+  // 占满整行，后面的提示文字才会换到下一行
+  flex: 0 0 100%;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--bg-primary);
+}
+
+.switch-item {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  margin-bottom: var(--space-2);
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: 10px var(--space-4);
+  transition: background var(--transition-fast);
+
+  & + & {
+    border-top: 1px solid var(--border-light);
+  }
+
+  &:hover {
+    background: var(--bg-secondary);
+  }
+}
+
+.switch-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
 .switch-label {
   font-size: var(--text-sm);
-  color: var(--text-secondary);
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.switch-desc {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  line-height: 1.4;
 }
 
 .form-tip {
