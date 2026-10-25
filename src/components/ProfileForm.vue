@@ -2,7 +2,7 @@
   <el-dialog
     v-model="visible"
     :title="isEdit ? $t('profile.form.titleEdit') : $t('profile.form.titleCreate')"
-    width="480px"
+    width="560px"
     destroy-on-close
     class="profile-form-dialog"
   >
@@ -101,7 +101,7 @@
         </div>
       </template>
 
-      <div class="form-row align-center">
+      <div class="form-row">
         <el-form-item :label="$t('profile.form.icon')" class="icon-item">
           <div class="icon-selector">
             <div class="current-icon" @click="triggerFileInput">
@@ -118,29 +118,6 @@
               style="display: none"
               @change="handleFileChange"
             />
-          </div>
-
-          <!-- 不传图标时用这个颜色画色块头像；选「自动」则按配置取色 -->
-          <div class="color-picker-label">{{ $t('profile.form.iconColor') }}</div>
-          <div class="color-picker">
-            <button
-              v-for="color in macaronPalette"
-              :key="color.bg"
-              type="button"
-              class="color-swatch"
-              :class="{ active: form.icon_color === color.bg }"
-              :style="{ background: color.bg }"
-              @click="toggleColor(color.bg)"
-            />
-            <button
-              type="button"
-              class="color-swatch auto"
-              :class="{ active: !form.icon_color }"
-              :title="$t('profile.form.iconColorAuto')"
-              @click="toggleColor('')"
-            >
-              A
-            </button>
           </div>
         </el-form-item>
 
@@ -163,6 +140,30 @@
           </el-select>
         </el-form-item>
       </div>
+
+      <!-- 图标颜色单独占一行：色块够宽就不换行，也不会跟头像挤在一起 -->
+      <el-form-item :label="$t('profile.form.iconColor')" class="icon-color-item">
+        <div class="color-picker">
+          <button
+            v-for="color in macaronPalette"
+            :key="color.bg"
+            type="button"
+            class="color-swatch"
+            :class="{ active: form.icon_color === color.bg }"
+            :style="{ background: color.bg }"
+            @click="toggleColor(color.bg)"
+          />
+          <button
+            type="button"
+            class="color-swatch auto"
+            :class="{ active: !form.icon_color }"
+            :title="$t('profile.form.iconColorAuto')"
+            @click="toggleColor('')"
+          >
+            A
+          </button>
+        </div>
+      </el-form-item>
 
       <el-form-item v-if="!isEdit && templateProfiles.length > 0" :label="$t('profile.form.template')">
         <el-select
@@ -579,6 +580,11 @@ const handleSubmit = async () => {
 </script>
 
 <style scoped lang="scss">
+// 窄窗口下不要把弹窗顶出屏幕
+.profile-form-dialog {
+  max-width: 92vw;
+}
+
 :deep(.el-dialog__header) {
   background: linear-gradient(135deg, var(--primary-500) 0%, var(--secondary-500) 100%);
   padding: var(--space-3) var(--space-5);
@@ -725,25 +731,24 @@ const handleSubmit = async () => {
   }
 }
 
-.color-picker-label {
-  margin-top: var(--space-2);
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
-  text-align: center;
+.icon-color-item {
+  margin-top: var(--space-1);
+
+  :deep(.el-form-item__content) {
+    line-height: 1;
+  }
 }
 
 .color-picker {
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px;
-  margin-top: 6px;
-  max-width: 176px;
+  align-items: center;
+  gap: 10px;
 }
 
 .color-swatch {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: 1px solid var(--border-light);
   border-radius: var(--radius-full);
@@ -754,9 +759,10 @@ const handleSubmit = async () => {
     transform: scale(1.12);
   }
 
+  // 选中：底色留一圈缝隙，再加一层主色环，避免和色块本身糊在一起
   &.active {
     border-color: transparent;
-    box-shadow: 0 0 0 2px var(--primary-400);
+    box-shadow: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--primary-400);
   }
 
   // 「自动」：不指定颜色，按配置 id 取色
@@ -764,10 +770,11 @@ const handleSubmit = async () => {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: var(--font-semibold);
     color: var(--text-tertiary);
     background: var(--bg-secondary);
+    border-style: dashed;
   }
 }
 
