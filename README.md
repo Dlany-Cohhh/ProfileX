@@ -138,7 +138,7 @@ npx vue-tsc --noEmit  # 类型检查
 
 ProfileX 是基于 [chao-eng/SpaceShift](https://github.com/chao-eng/SpaceShift) 的**二次开发**版本。
 
-感谢原作者 [@chao-eng](https://github.com/chao-eng) 开源了 SpaceShift —— 它的整体架构、配置隔离思路与备份格式设计是 ProfileX 的起点。本项目在其基础上重做了界面与交互、统一了品牌命名，并补充了列表筛选、性能分析、主题与工作区体验等改进。
+感谢原作者 [@chao-eng](https://github.com/chao-eng) 开源了 SpaceShift —— 它的整体架构、配置隔离思路与备份格式设计是 ProfileX 的起点。本项目在其基础上重做了界面与交互，并补充了列表筛选、性能分析、主题与工作区体验等改进。
 
 同时感谢这些开源项目：Tauri、Vue、Element Plus、rusqlite、zip-rs、walkdir、chrono。
 
